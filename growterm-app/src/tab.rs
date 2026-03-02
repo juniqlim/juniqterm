@@ -1,5 +1,5 @@
 use std::io::Read;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -19,6 +19,8 @@ pub struct Tab {
     pub last_pty_output_at: Arc<Mutex<Option<Instant>>>,
     pub response_timer: ResponseTimer,
     pub bracketed_paste: Arc<AtomicBool>,
+    pub mouse_mode: Arc<AtomicU8>,
+    pub mouse_sgr: Arc<AtomicBool>,
 }
 
 pub struct TerminalState {
@@ -211,6 +213,8 @@ impl Tab {
         let dirty = Arc::new(AtomicBool::new(false));
         let last_pty_output_at = Arc::new(Mutex::new(None));
         let bracketed_paste = Arc::new(AtomicBool::new(false));
+        let mouse_mode = Arc::new(AtomicU8::new(0));
+        let mouse_sgr = Arc::new(AtomicBool::new(false));
         let pty_writer = match growterm_pty::spawn_with_cwd(rows, cols, cwd) {
             Ok((reader, writer)) => {
                 let responder = writer.responder();
@@ -221,6 +225,8 @@ impl Tab {
                     Arc::clone(&dirty),
                     Arc::clone(&last_pty_output_at),
                     Arc::clone(&bracketed_paste),
+                    Arc::clone(&mouse_mode),
+                    Arc::clone(&mouse_sgr),
                     window,
                 );
                 writer
@@ -235,6 +241,8 @@ impl Tab {
             last_pty_output_at,
             response_timer: ResponseTimer::new(),
             bracketed_paste,
+            mouse_mode,
+            mouse_sgr,
         })
     }
 }
@@ -246,6 +254,8 @@ fn start_io_thread(
     dirty: Arc<AtomicBool>,
     last_pty_output_at: Arc<Mutex<Option<Instant>>>,
     bracketed_paste: Arc<AtomicBool>,
+    mouse_mode: Arc<AtomicU8>,
+    mouse_sgr: Arc<AtomicBool>,
     window: Arc<MacWindow>,
 ) {
     std::thread::spawn(move || {
@@ -317,6 +327,15 @@ fn start_io_thread(
                             TerminalControl::BracketedPasteDisable => {
                                 bracketed_paste.store(false, Ordering::Relaxed);
                             }
+                            TerminalControl::MouseModeSet(mode) => {
+                                mouse_mode.store(mode, Ordering::Relaxed);
+                            }
+                            TerminalControl::MouseSgrEnable => {
+                                mouse_sgr.store(true, Ordering::Relaxed);
+                            }
+                            TerminalControl::MouseSgrDisable => {
+                                mouse_sgr.store(false, Ordering::Relaxed);
+                            }
                         }
                     }
                     drop(state);
@@ -369,6 +388,9 @@ enum TerminalControl {
     SyncOutputEnd,
     BracketedPasteEnable,
     BracketedPasteDisable,
+    MouseModeSet(u8),
+    MouseSgrEnable,
+    MouseSgrDisable,
 }
 
 fn extract_terminal_controls(pending: &mut Vec<u8>) -> Vec<TerminalControl> {
@@ -405,6 +427,48 @@ fn extract_terminal_controls(pending: &mut Vec<u8>) -> Vec<TerminalControl> {
         }
         if rest.starts_with(b"\x1b[?2004l") {
             controls.push(TerminalControl::BracketedPasteDisable);
+            i += 8;
+            continue;
+        }
+        // Mouse tracking modes: ?1000, ?1002, ?1003
+        if rest.starts_with(b"\x1b[?1000h") {
+            controls.push(TerminalControl::MouseModeSet(1));
+            i += 8;
+            continue;
+        }
+        if rest.starts_with(b"\x1b[?1000l") {
+            controls.push(TerminalControl::MouseModeSet(0));
+            i += 8;
+            continue;
+        }
+        if rest.starts_with(b"\x1b[?1002h") {
+            controls.push(TerminalControl::MouseModeSet(2));
+            i += 8;
+            continue;
+        }
+        if rest.starts_with(b"\x1b[?1002l") {
+            controls.push(TerminalControl::MouseModeSet(0));
+            i += 8;
+            continue;
+        }
+        if rest.starts_with(b"\x1b[?1003h") {
+            controls.push(TerminalControl::MouseModeSet(3));
+            i += 8;
+            continue;
+        }
+        if rest.starts_with(b"\x1b[?1003l") {
+            controls.push(TerminalControl::MouseModeSet(0));
+            i += 8;
+            continue;
+        }
+        // SGR mouse encoding: ?1006
+        if rest.starts_with(b"\x1b[?1006h") {
+            controls.push(TerminalControl::MouseSgrEnable);
+            i += 8;
+            continue;
+        }
+        if rest.starts_with(b"\x1b[?1006l") {
+            controls.push(TerminalControl::MouseSgrDisable);
             i += 8;
             continue;
         }
@@ -519,6 +583,14 @@ fn is_known_control_prefix(rest: &[u8]) -> bool {
         b"\x1b[?2026l".as_slice(),
         b"\x1b[?2004h".as_slice(),
         b"\x1b[?2004l".as_slice(),
+        b"\x1b[?1000h".as_slice(),
+        b"\x1b[?1000l".as_slice(),
+        b"\x1b[?1002h".as_slice(),
+        b"\x1b[?1002l".as_slice(),
+        b"\x1b[?1003h".as_slice(),
+        b"\x1b[?1003l".as_slice(),
+        b"\x1b[?1006h".as_slice(),
+        b"\x1b[?1006l".as_slice(),
         b"\x1b[6n".as_slice(),
         b"\x1b[?u".as_slice(),
         b"\x1b[c".as_slice(),
@@ -781,6 +853,8 @@ mod tests {
             last_pty_output_at: Arc::new(Mutex::new(None)),
             response_timer: ResponseTimer::new(),
             bracketed_paste: Arc::new(AtomicBool::new(false)),
+            mouse_mode: Arc::new(AtomicU8::new(0)),
+            mouse_sgr: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -1123,6 +1197,86 @@ mod tests {
         let controls = extract_terminal_controls(&mut pending);
         assert!(controls.is_empty());
         assert_eq!(pending, b"\x1b[?2004");
+    }
+
+    #[test]
+    fn extract_terminal_controls_detects_mouse_normal_mode() {
+        let mut pending = b"\x1b[?1000h".to_vec();
+        let controls = extract_terminal_controls(&mut pending);
+        assert_eq!(controls, vec![TerminalControl::MouseModeSet(1)]);
+        assert!(pending.is_empty());
+
+        let mut pending = b"\x1b[?1000l".to_vec();
+        let controls = extract_terminal_controls(&mut pending);
+        assert_eq!(controls, vec![TerminalControl::MouseModeSet(0)]);
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn extract_terminal_controls_detects_mouse_button_mode() {
+        let mut pending = b"\x1b[?1002h".to_vec();
+        let controls = extract_terminal_controls(&mut pending);
+        assert_eq!(controls, vec![TerminalControl::MouseModeSet(2)]);
+        assert!(pending.is_empty());
+
+        let mut pending = b"\x1b[?1002l".to_vec();
+        let controls = extract_terminal_controls(&mut pending);
+        assert_eq!(controls, vec![TerminalControl::MouseModeSet(0)]);
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn extract_terminal_controls_detects_mouse_any_mode() {
+        let mut pending = b"\x1b[?1003h".to_vec();
+        let controls = extract_terminal_controls(&mut pending);
+        assert_eq!(controls, vec![TerminalControl::MouseModeSet(3)]);
+        assert!(pending.is_empty());
+
+        let mut pending = b"\x1b[?1003l".to_vec();
+        let controls = extract_terminal_controls(&mut pending);
+        assert_eq!(controls, vec![TerminalControl::MouseModeSet(0)]);
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn extract_terminal_controls_detects_mouse_sgr_mode() {
+        let mut pending = b"\x1b[?1006h".to_vec();
+        let controls = extract_terminal_controls(&mut pending);
+        assert_eq!(controls, vec![TerminalControl::MouseSgrEnable]);
+        assert!(pending.is_empty());
+
+        let mut pending = b"\x1b[?1006l".to_vec();
+        let controls = extract_terminal_controls(&mut pending);
+        assert_eq!(controls, vec![TerminalControl::MouseSgrDisable]);
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn extract_terminal_controls_keeps_partial_mouse_mode() {
+        let mut pending = b"\x1b[?1000".to_vec();
+        let controls = extract_terminal_controls(&mut pending);
+        assert!(controls.is_empty());
+        assert_eq!(pending, b"\x1b[?1000");
+
+        let mut pending = b"\x1b[?100".to_vec();
+        let controls = extract_terminal_controls(&mut pending);
+        assert!(controls.is_empty());
+        assert_eq!(pending, b"\x1b[?100");
+    }
+
+    #[test]
+    fn extract_terminal_controls_detects_combined_mouse_sequences() {
+        // vim typically sends: enable any-event tracking + SGR encoding
+        let mut pending = b"\x1b[?1003h\x1b[?1006h".to_vec();
+        let controls = extract_terminal_controls(&mut pending);
+        assert_eq!(
+            controls,
+            vec![
+                TerminalControl::MouseModeSet(3),
+                TerminalControl::MouseSgrEnable,
+            ]
+        );
+        assert!(pending.is_empty());
     }
 
     #[test]

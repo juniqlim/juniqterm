@@ -481,6 +481,23 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                     continue;
                 }
 
+                // Mouse tracking: send SGR report to PTY
+                {
+                    let y_offset = tabs.mouse_y_offset(drawer.tab_bar_height());
+                    if let Some(tab) = tabs.active_tab_mut() {
+                        let mode = tab.mouse_mode.load(Ordering::Relaxed);
+                        if mode > 0 {
+                            let (row, col) = selection::pixel_to_cell(
+                                x as f32, y as f32 - y_offset, cw, ch,
+                            );
+                            let seq = format!("\x1b[<0;{};{}M", col as u32 + 1, row as u32 + 1);
+                            let _ = tab.pty_writer.write_all(seq.as_bytes());
+                            let _ = tab.pty_writer.flush();
+                            continue;
+                        }
+                    }
+                }
+
                 // Scrollbar area click: start dragging
                 let screen_w = window.inner_size().0 as f32;
                 let screen_h = window.inner_size().1 as f32;
@@ -540,6 +557,24 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                 window.request_redraw();
             }
             AppEvent::MouseDragged(x, y) => {
+                // Mouse tracking: send SGR drag report to PTY
+                {
+                    let y_offset = tabs.mouse_y_offset(drawer.tab_bar_height());
+                    if let Some(tab) = tabs.active_tab_mut() {
+                        let mode = tab.mouse_mode.load(Ordering::Relaxed);
+                        if mode >= 2 {
+                            let (cw, ch) = drawer.cell_size();
+                            let (row, col) = selection::pixel_to_cell(
+                                x as f32, y as f32 - y_offset, cw, ch,
+                            );
+                            // btn 32 = motion flag + button 0
+                            let seq = format!("\x1b[<32;{};{}M", col as u32 + 1, row as u32 + 1);
+                            let _ = tab.pty_writer.write_all(seq.as_bytes());
+                            let _ = tab.pty_writer.flush();
+                            continue;
+                        }
+                    }
+                }
                 if scrollbar_dragging {
                     let screen_h = window.inner_size().1 as f32;
                     let tab_bar_offset = tabs.mouse_y_offset(drawer.tab_bar_height());
@@ -588,6 +623,24 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                 if tabs.show_tab_bar() && (y as f32) < ch {
                     continue;
                 }
+
+                // Mouse tracking: send SGR release report to PTY
+                {
+                    let y_offset = tabs.mouse_y_offset(drawer.tab_bar_height());
+                    if let Some(tab) = tabs.active_tab_mut() {
+                        let mode = tab.mouse_mode.load(Ordering::Relaxed);
+                        if mode > 0 {
+                            let (row, col) = selection::pixel_to_cell(
+                                x as f32, y as f32 - y_offset, cw, ch,
+                            );
+                            let seq = format!("\x1b[<0;{};{}m", col as u32 + 1, row as u32 + 1);
+                            let _ = tab.pty_writer.write_all(seq.as_bytes());
+                            let _ = tab.pty_writer.flush();
+                            continue;
+                        }
+                    }
+                }
+
                 let (screen_row, col) =
                     selection::pixel_to_cell(x as f32, y as f32 - tabs.mouse_y_offset(drawer.tab_bar_height()), cw, ch);
                 let abs_row = if let Some(tab) = tabs.active_tab() {
@@ -640,6 +693,29 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                 }
             }
             AppEvent::ScrollWheel(delta_y) => {
+                // Mouse tracking: send SGR scroll report to PTY
+                if let Some(tab) = tabs.active_tab_mut() {
+                    let mode = tab.mouse_mode.load(Ordering::Relaxed);
+                    if mode > 0 {
+                        scroll_accum += delta_y;
+                        let (_, ch) = drawer.cell_size();
+                        let line_height = if ch > 0.0 { ch as f64 } else { 20.0 };
+                        let lines = (scroll_accum / line_height).trunc() as i32;
+                        if lines != 0 {
+                            scroll_accum -= lines as f64 * line_height;
+                            // btn 64=scroll up, 65=scroll down
+                            let btn = if lines > 0 { 64 } else { 65 };
+                            let count = lines.unsigned_abs() as usize;
+                            // Use col=1, row=1 as default position for scroll events
+                            for _ in 0..count {
+                                let seq = format!("\x1b[<{btn};1;1M");
+                                let _ = tab.pty_writer.write_all(seq.as_bytes());
+                            }
+                            let _ = tab.pty_writer.flush();
+                        }
+                        continue;
+                    }
+                }
                 scroll_accum += delta_y;
                 let (_, ch) = drawer.cell_size();
                 let line_height = if ch > 0.0 { ch as f64 } else { 20.0 };
