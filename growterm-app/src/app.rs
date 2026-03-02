@@ -300,7 +300,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                             window.set_copy_mode(true);
                             window.discard_marked_text();
                         }
-                        render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, hover_url_range, pomodoro.is_input_blocked(), scrollbar_dragging || scrollbar_visible_until.map_or(false, |t| t > Instant::now()));
+                        render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, hover_url_range, pomodoro.is_input_blocked(), scrollbar_dragging || scrollbar_visible_until.map_or(false, |t| t > Instant::now()), copy_flash);
                         continue;
                     }
 
@@ -327,7 +327,14 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                             if let Ok(text) = clipboard.get_text() {
                                 if !text.is_empty() {
                                     if let Some(tab) = tabs.active_tab_mut() {
+                                        let bp = tab.bracketed_paste.load(std::sync::atomic::Ordering::Relaxed);
+                                        if bp {
+                                            let _ = tab.pty_writer.write_all(b"\x1b[200~");
+                                        }
                                         let _ = tab.pty_writer.write_all(text.as_bytes());
+                                        if bp {
+                                            let _ = tab.pty_writer.write_all(b"\x1b[201~");
+                                        }
                                         let _ = tab.pty_writer.flush();
                                     }
                                 }
@@ -433,7 +440,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                         }
                     }
 
-                    render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, hover_url_range, pomodoro.is_input_blocked(), scrollbar_dragging || scrollbar_visible_until.map_or(false, |t| t > Instant::now()));
+                    render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, hover_url_range, pomodoro.is_input_blocked(), scrollbar_dragging || scrollbar_visible_until.map_or(false, |t| t > Instant::now()), copy_flash);
                     continue;
                 }
 

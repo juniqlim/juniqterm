@@ -18,6 +18,7 @@ pub struct Tab {
     pub dirty: Arc<AtomicBool>,
     pub last_pty_output_at: Arc<Mutex<Option<Instant>>>,
     pub response_timer: ResponseTimer,
+    pub bracketed_paste: Arc<AtomicBool>,
 }
 
 pub struct TerminalState {
@@ -209,6 +210,7 @@ impl Tab {
         }));
         let dirty = Arc::new(AtomicBool::new(false));
         let last_pty_output_at = Arc::new(Mutex::new(None));
+        let bracketed_paste = Arc::new(AtomicBool::new(false));
         let pty_writer = match growterm_pty::spawn_with_cwd(rows, cols, cwd) {
             Ok((reader, writer)) => {
                 let responder = writer.responder();
@@ -218,6 +220,7 @@ impl Tab {
                     Arc::clone(&terminal),
                     Arc::clone(&dirty),
                     Arc::clone(&last_pty_output_at),
+                    Arc::clone(&bracketed_paste),
                     window,
                 );
                 writer
@@ -231,6 +234,7 @@ impl Tab {
             dirty,
             last_pty_output_at,
             response_timer: ResponseTimer::new(),
+            bracketed_paste,
         })
     }
 }
@@ -241,6 +245,7 @@ fn start_io_thread(
     terminal: Arc<Mutex<TerminalState>>,
     dirty: Arc<AtomicBool>,
     last_pty_output_at: Arc<Mutex<Option<Instant>>>,
+    bracketed_paste: Arc<AtomicBool>,
     window: Arc<MacWindow>,
 ) {
     std::thread::spawn(move || {
@@ -306,6 +311,12 @@ fn start_io_thread(
                             TerminalControl::SyncOutputEnd => {
                                 sync_output = false;
                             }
+                            TerminalControl::BracketedPasteEnable => {
+                                bracketed_paste.store(true, Ordering::Relaxed);
+                            }
+                            TerminalControl::BracketedPasteDisable => {
+                                bracketed_paste.store(false, Ordering::Relaxed);
+                            }
                         }
                     }
                     drop(state);
@@ -356,6 +367,8 @@ enum TerminalControl {
     SetDefaultBackgroundColor(Rgb),
     SyncOutputBegin,
     SyncOutputEnd,
+    BracketedPasteEnable,
+    BracketedPasteDisable,
 }
 
 fn extract_terminal_controls(pending: &mut Vec<u8>) -> Vec<TerminalControl> {
@@ -382,6 +395,16 @@ fn extract_terminal_controls(pending: &mut Vec<u8>) -> Vec<TerminalControl> {
         }
         if rest.starts_with(b"\x1b[?2026l") {
             controls.push(TerminalControl::SyncOutputEnd);
+            i += 8;
+            continue;
+        }
+        if rest.starts_with(b"\x1b[?2004h") {
+            controls.push(TerminalControl::BracketedPasteEnable);
+            i += 8;
+            continue;
+        }
+        if rest.starts_with(b"\x1b[?2004l") {
+            controls.push(TerminalControl::BracketedPasteDisable);
             i += 8;
             continue;
         }
@@ -494,6 +517,8 @@ fn is_known_control_prefix(rest: &[u8]) -> bool {
     [
         b"\x1b[?2026h".as_slice(),
         b"\x1b[?2026l".as_slice(),
+        b"\x1b[?2004h".as_slice(),
+        b"\x1b[?2004l".as_slice(),
         b"\x1b[6n".as_slice(),
         b"\x1b[?u".as_slice(),
         b"\x1b[c".as_slice(),
@@ -755,6 +780,7 @@ mod tests {
             dirty,
             last_pty_output_at: Arc::new(Mutex::new(None)),
             response_timer: ResponseTimer::new(),
+            bracketed_paste: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -1073,6 +1099,30 @@ mod tests {
         mgr.add_tab(dummy_tab());
         assert!(mgr.show_tab_bar());
         assert_eq!(mgr.mouse_y_offset(30.0), 30.0);
+    }
+
+    #[test]
+    fn extract_terminal_controls_detects_bracketed_paste_enable() {
+        let mut pending = b"\x1b[?2004h".to_vec();
+        let controls = extract_terminal_controls(&mut pending);
+        assert_eq!(controls, vec![TerminalControl::BracketedPasteEnable]);
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn extract_terminal_controls_detects_bracketed_paste_disable() {
+        let mut pending = b"\x1b[?2004l".to_vec();
+        let controls = extract_terminal_controls(&mut pending);
+        assert_eq!(controls, vec![TerminalControl::BracketedPasteDisable]);
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn extract_terminal_controls_keeps_partial_bracketed_paste() {
+        let mut pending = b"\x1b[?2004".to_vec();
+        let controls = extract_terminal_controls(&mut pending);
+        assert!(controls.is_empty());
+        assert_eq!(pending, b"\x1b[?2004");
     }
 
     #[test]
