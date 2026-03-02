@@ -16,6 +16,7 @@ pub struct Tab {
     pub terminal: Arc<Mutex<TerminalState>>,
     pub pty_writer: PtyWriter,
     pub dirty: Arc<AtomicBool>,
+    pub sync_output: Arc<AtomicBool>,
     pub last_pty_output_at: Arc<Mutex<Option<Instant>>>,
     pub response_timer: ResponseTimer,
     pub bracketed_paste: Arc<AtomicBool>,
@@ -210,6 +211,7 @@ impl Tab {
             palette: TerminalPalette::default(),
         }));
         let dirty = Arc::new(AtomicBool::new(false));
+        let sync_output = Arc::new(AtomicBool::new(false));
         let last_pty_output_at = Arc::new(Mutex::new(None));
         let bracketed_paste = Arc::new(AtomicBool::new(false));
         let mouse_mode = Arc::new(AtomicU8::new(0));
@@ -222,6 +224,7 @@ impl Tab {
                     responder,
                     Arc::clone(&terminal),
                     Arc::clone(&dirty),
+                    Arc::clone(&sync_output),
                     Arc::clone(&last_pty_output_at),
                     Arc::clone(&bracketed_paste),
                     Arc::clone(&mouse_mode),
@@ -237,6 +240,7 @@ impl Tab {
             terminal,
             pty_writer,
             dirty,
+            sync_output,
             last_pty_output_at,
             response_timer: ResponseTimer::new(),
             bracketed_paste,
@@ -250,6 +254,7 @@ fn start_io_thread(
     responder: growterm_pty::PtyResponder,
     terminal: Arc<Mutex<TerminalState>>,
     dirty: Arc<AtomicBool>,
+    sync_output: Arc<AtomicBool>,
     last_pty_output_at: Arc<Mutex<Option<Instant>>>,
     bracketed_paste: Arc<AtomicBool>,
     mouse_mode: Arc<AtomicU8>,
@@ -261,7 +266,7 @@ fn start_io_thread(
         let mut pending_queries: Vec<u8> = Vec::new();
         let mut kitty_keyboard_flags: u16 = 0;
         let mut kitty_keyboard_stack: Vec<u16> = Vec::new();
-        let mut sync_output = false;
+        // sync_output is now a shared Arc<AtomicBool> passed as parameter
         loop {
             match reader.read(&mut buf) {
                 Ok(0) => break,
@@ -314,10 +319,10 @@ fn start_io_thread(
                                 state.palette.default_bg = color;
                             }
                             TerminalControl::SyncOutputBegin => {
-                                sync_output = true;
+                                sync_output.store(true, Ordering::Relaxed);
                             }
                             TerminalControl::SyncOutputEnd => {
-                                sync_output = false;
+                                sync_output.store(false, Ordering::Relaxed);
                             }
                             TerminalControl::BracketedPasteEnable => {
                                 bracketed_paste.store(true, Ordering::Relaxed);
@@ -342,7 +347,7 @@ fn start_io_thread(
                         let _ = responder.write_all_flush(response.as_bytes());
                     }
 
-                    if !sync_output {
+                    if !sync_output.load(Ordering::Relaxed) {
                         // Only request redraw if dirty was previously false.
                         // This coalesces multiple PTY reads into a single
                         // redraw, avoiding redundant dispatch_async_f overhead.
@@ -848,6 +853,7 @@ mod tests {
             terminal,
             pty_writer,
             dirty,
+            sync_output: Arc::new(AtomicBool::new(false)),
             last_pty_output_at: Arc::new(Mutex::new(None)),
             response_timer: ResponseTimer::new(),
             bracketed_paste: Arc::new(AtomicBool::new(false)),
