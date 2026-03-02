@@ -73,7 +73,7 @@ impl CopyMode {
     }
 
     /// h키: 5줄 위로 이동
-    pub fn move_left(&mut self, cols: u16, max_row: u32, sel: &mut Selection) {
+    pub fn move_left(&mut self, cols: u16, sel: &mut Selection) {
         if !self.active {
             return;
         }
@@ -256,7 +256,7 @@ mod tests {
         let mut sel = Selection::default();
         cm.enter(10, COLS, &mut sel);
 
-        cm.move_left(COLS, 100, &mut sel);
+        cm.move_left(COLS, &mut sel);
         assert_eq!(cm.cursor.0, 5);
         assert_eq!(sel.start, (5, 0));
         assert_eq!(sel.end, (5, COLS - 1));
@@ -280,7 +280,7 @@ mod tests {
         let mut sel = Selection::default();
         cm.enter(3, COLS, &mut sel);
 
-        cm.move_left(COLS, 100, &mut sel);
+        cm.move_left(COLS, &mut sel);
         assert_eq!(cm.cursor.0, 0);
     }
 
@@ -305,7 +305,7 @@ mod tests {
         assert_eq!(sel.start, (10, 0));
         assert_eq!(sel.end, (15, COLS - 1));
 
-        cm.move_left(COLS, 100, &mut sel);
+        cm.move_left(COLS, &mut sel);
         assert_eq!(sel.start, (10, 0));
         assert_eq!(sel.end, (10, COLS - 1));
     }
@@ -328,7 +328,7 @@ mod tests {
 
         cm.move_down(COLS, 100, &mut sel);
         cm.move_up(COLS, &mut sel);
-        cm.move_left(COLS, 100, &mut sel);
+        cm.move_left(COLS, &mut sel);
         cm.move_right(COLS, 100, &mut sel);
         cm.toggle_visual(COLS, &mut sel);
 

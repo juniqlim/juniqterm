@@ -20,7 +20,6 @@ pub struct Tab {
     pub response_timer: ResponseTimer,
     pub bracketed_paste: Arc<AtomicBool>,
     pub mouse_mode: Arc<AtomicU8>,
-    pub mouse_sgr: Arc<AtomicBool>,
 }
 
 pub struct TerminalState {
@@ -242,7 +241,6 @@ impl Tab {
             response_timer: ResponseTimer::new(),
             bracketed_paste,
             mouse_mode,
-            mouse_sgr,
         })
     }
 }
@@ -854,7 +852,6 @@ mod tests {
             response_timer: ResponseTimer::new(),
             bracketed_paste: Arc::new(AtomicBool::new(false)),
             mouse_mode: Arc::new(AtomicU8::new(0)),
-            mouse_sgr: Arc::new(AtomicBool::new(false)),
         }
     }
 

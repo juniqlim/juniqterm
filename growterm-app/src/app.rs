@@ -402,7 +402,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                             copy_mode.move_right(cols, max_row, &mut sel);
                         }
                         kc::ANSI_L => {
-                            copy_mode.move_left(cols, max_row, &mut sel);
+                            copy_mode.move_left(cols, &mut sel);
                         }
                         kc::ANSI_Y => {
                             // y: 선택 텍스트 클립보드에 복사 후 모드 종료
