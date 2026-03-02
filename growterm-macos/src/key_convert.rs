@@ -16,6 +16,7 @@ pub mod keycode {
     pub const END: u16 = 0x77;
     pub const PAGE_UP: u16 = 0x74;
     pub const PAGE_DOWN: u16 = 0x79;
+    pub const ANSI_A: u16 = 0x00;
     pub const ANSI_C: u16 = 0x08;
     pub const ANSI_Q: u16 = 0x0C;
     pub const ANSI_V: u16 = 0x09;

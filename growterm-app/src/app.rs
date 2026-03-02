@@ -75,6 +75,9 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
     let mut scrollbar_visible_until: Option<Instant> = None;
     const SCROLLBAR_HIT_WIDTH: f32 = 20.0;
     const SCROLLBAR_SHOW_DURATION: Duration = Duration::from_millis(1500);
+    // copy flash: screen row to highlight briefly after Cmd+A
+    let mut copy_flash: Option<(u16, Instant)> = None;
+    const COPY_FLASH_DURATION: Duration = Duration::from_millis(150);
 
     loop {
         let event = if let Some(evt) = deferred.take() {
@@ -150,7 +153,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                             }
                             Err(e) => eprintln!("Failed to spawn tab: {e}"),
                         }
-                        render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, hover_url_range, pomodoro.is_input_blocked(), scrollbar_dragging || scrollbar_visible_until.map_or(false, |t| t > Instant::now()));
+                        render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, hover_url_range, pomodoro.is_input_blocked(), scrollbar_dragging || scrollbar_visible_until.map_or(false, |t| t > Instant::now()), copy_flash);
                         continue;
                     }
 
@@ -179,7 +182,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                                 let _ = t.pty_writer.resize(rows, cols);
                             }
                         }
-                        render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, hover_url_range, pomodoro.is_input_blocked(), scrollbar_dragging || scrollbar_visible_until.map_or(false, |t| t > Instant::now()));
+                        render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, hover_url_range, pomodoro.is_input_blocked(), scrollbar_dragging || scrollbar_visible_until.map_or(false, |t| t > Instant::now()), copy_flash);
                         continue;
                     }
 
@@ -191,7 +194,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                             sel.clear();
                             preedit.clear();
                             window.discard_marked_text();
-                            render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, hover_url_range, pomodoro.is_input_blocked(), scrollbar_dragging || scrollbar_visible_until.map_or(false, |t| t > Instant::now()));
+                            render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, hover_url_range, pomodoro.is_input_blocked(), scrollbar_dragging || scrollbar_visible_until.map_or(false, |t| t > Instant::now()), copy_flash);
                             continue;
                         }
                         if keycode == kc::ANSI_RIGHT_BRACKET {
@@ -200,7 +203,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                             sel.clear();
                             preedit.clear();
                             window.discard_marked_text();
-                            render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, hover_url_range, pomodoro.is_input_blocked(), scrollbar_dragging || scrollbar_visible_until.map_or(false, |t| t > Instant::now()));
+                            render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, hover_url_range, pomodoro.is_input_blocked(), scrollbar_dragging || scrollbar_visible_until.map_or(false, |t| t > Instant::now()), copy_flash);
                             continue;
                         }
                     }
@@ -225,7 +228,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                             sel.clear();
                             preedit.clear();
                             window.discard_marked_text();
-                            render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, hover_url_range, pomodoro.is_input_blocked(), scrollbar_dragging || scrollbar_visible_until.map_or(false, |t| t > Instant::now()));
+                            render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, hover_url_range, pomodoro.is_input_blocked(), scrollbar_dragging || scrollbar_visible_until.map_or(false, |t| t > Instant::now()), copy_flash);
                         }
                         continue;
                     }
@@ -242,7 +245,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                             }
                         }
                         scrollbar_visible_until = Some(Instant::now() + SCROLLBAR_SHOW_DURATION);
-                        render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, hover_url_range, pomodoro.is_input_blocked(), true);
+                        render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, hover_url_range, pomodoro.is_input_blocked(), true, copy_flash);
                         continue;
                     }
 
@@ -258,7 +261,29 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                             }
                         }
                         scrollbar_visible_until = Some(Instant::now() + SCROLLBAR_SHOW_DURATION);
-                        render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, hover_url_range, pomodoro.is_input_blocked(), true);
+                        render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, hover_url_range, pomodoro.is_input_blocked(), true, copy_flash);
+                        continue;
+                    }
+
+                    // Cmd+A: copy input line to clipboard
+                    if keycode == kc::ANSI_A {
+                        if let Some(tab) = tabs.active_tab() {
+                            let state = tab.terminal.lock().unwrap();
+                            let (text, flash_row) = selection::input_line_text(&state.grid);
+                            drop(state);
+                            if !text.is_empty() {
+                                if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                                    let _ = clipboard.set_text(text);
+                                }
+                            }
+                            copy_flash = Some((flash_row, Instant::now()));
+                            render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, hover_url_range, pomodoro.is_input_blocked(), scrollbar_dragging || scrollbar_visible_until.map_or(false, |t| t > Instant::now()), copy_flash);
+                            let w = window.clone();
+                            std::thread::spawn(move || {
+                                std::thread::sleep(COPY_FLASH_DURATION);
+                                w.request_redraw();
+                            });
+                        }
                         continue;
                     }
 
@@ -331,7 +356,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                             drop(state);
                             let _ = tab.pty_writer.resize(term_rows, cols);
                         }
-                        render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, hover_url_range, pomodoro.is_input_blocked(), scrollbar_dragging || scrollbar_visible_until.map_or(false, |t| t > Instant::now()));
+                        render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, hover_url_range, pomodoro.is_input_blocked(), scrollbar_dragging || scrollbar_visible_until.map_or(false, |t| t > Instant::now()), copy_flash);
                         continue;
                     }
                     continue;
@@ -468,7 +493,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                             let offset = scrollback_len.saturating_sub(target_top_row).min(scrollback_len);
                             state.grid.set_scroll_offset(offset);
                             drop(state);
-                            render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, hover_url_range, pomodoro.is_input_blocked(), true);
+                            render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, hover_url_range, pomodoro.is_input_blocked(), true, copy_flash);
                             continue;
                         }
                     }
@@ -523,7 +548,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                         state.grid.set_scroll_offset(offset);
                         drop(state);
                         scrollbar_visible_until = Some(Instant::now() + SCROLLBAR_SHOW_DURATION);
-                        render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, hover_url_range, pomodoro.is_input_blocked(), true);
+                        render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, hover_url_range, pomodoro.is_input_blocked(), true, copy_flash);
                     }
                 } else if sel.active {
                     let (cw, ch) = drawer.cell_size();
@@ -623,7 +648,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                         }
                     }
                     scrollbar_visible_until = Some(Instant::now() + SCROLLBAR_SHOW_DURATION);
-                    render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, hover_url_range, pomodoro.is_input_blocked(), true);
+                    render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, hover_url_range, pomodoro.is_input_blocked(), true, copy_flash);
                 }
             }
             AppEvent::Resize(mut w, mut h) => {
@@ -650,9 +675,15 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                     drop(state);
                     let _ = tab.pty_writer.resize(term_rows, cols);
                 }
-                render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, hover_url_range, pomodoro.is_input_blocked(), scrollbar_dragging || scrollbar_visible_until.map_or(false, |t| t > Instant::now()));
+                render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, hover_url_range, pomodoro.is_input_blocked(), scrollbar_dragging || scrollbar_visible_until.map_or(false, |t| t > Instant::now()), copy_flash);
             }
             AppEvent::RedrawRequested => {
+                // Expire copy flash
+                if let Some((_, t)) = copy_flash {
+                    if t.elapsed() >= COPY_FLASH_DURATION {
+                        copy_flash = None;
+                    }
+                }
                 pomodoro.tick();
                 // Feed PTY output timestamp to each tab's response timer
                 for tab in tabs.tabs_mut() {
@@ -672,7 +703,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                 // Update window title with pomodoro + global avg
                 let title = build_title(&pomodoro, &tabs);
                 window.set_title(&title);
-                render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, hover_url_range, pomodoro.is_input_blocked(), scrollbar_dragging || scrollbar_visible_until.map_or(false, |t| t > Instant::now()));
+                render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, hover_url_range, pomodoro.is_input_blocked(), scrollbar_dragging || scrollbar_visible_until.map_or(false, |t| t > Instant::now()), copy_flash);
                 if was_dirty || preedit_changed {
                     if let Some(ref path) = grid_dump_path {
                         let dump_file = std::path::Path::new(path);
@@ -854,7 +885,7 @@ fn shell_escape(path: &str) -> String {
     }
 }
 
-fn render_with_tabs(drawer: &mut GpuDrawer, tabs: &TabManager, preedit: &str, sel: &Selection, ink_state: &InkImeState, hover_url_range: Option<(u32, u16, u16)>, is_break: bool, show_scrollbar: bool) {
+fn render_with_tabs(drawer: &mut GpuDrawer, tabs: &TabManager, preedit: &str, sel: &Selection, ink_state: &InkImeState, hover_url_range: Option<(u32, u16, u16)>, is_break: bool, show_scrollbar: bool, copy_flash: Option<(u16, Instant)>) {
     let tab = match tabs.active_tab() {
         Some(t) => t,
         None => return,
@@ -917,6 +948,17 @@ fn render_with_tabs(drawer: &mut GpuDrawer, tabs: &TabManager, preedit: &str, se
             for cmd in commands.iter_mut() {
                 if cmd.row == screen_row && cmd.col >= start_col && cmd.col < end_col {
                     cmd.flags |= growterm_types::CellFlags::UNDERLINE;
+                }
+            }
+        }
+    }
+
+    // Copy flash: briefly invert fg/bg on cursor row
+    if let Some((flash_row, flash_time)) = copy_flash {
+        if flash_time.elapsed() < Duration::from_millis(150) {
+            for cmd in commands.iter_mut() {
+                if cmd.row == flash_row {
+                    std::mem::swap(&mut cmd.fg, &mut cmd.bg);
                 }
             }
         }
