@@ -414,15 +414,26 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                             }
                             copy_mode.exit(&mut sel);
                             window.set_copy_mode(false);
+                            // 스크롤을 맨 아래(입력 위치)로 이동
+                            if let Some(tab) = tabs.active_tab() {
+                                let mut state = tab.terminal.lock().unwrap();
+                                state.grid.set_scroll_offset(0);
+                            }
                         }
                         kc::ESCAPE | kc::ANSI_Q => {
                             copy_mode.exit(&mut sel);
                             window.set_copy_mode(false);
+                            // 스크롤을 맨 아래(입력 위치)로 이동
+                            if let Some(tab) = tabs.active_tab() {
+                                let mut state = tab.terminal.lock().unwrap();
+                                state.grid.set_scroll_offset(0);
+                            }
                         }
                         _ => {}
                     }
 
-                    // 커서 행이 화면에 보이도록 스크롤 조정
+                    // 커서 행이 화면에 보이도록 스크롤 조정 (복사모드 활성 중에만)
+                    if copy_mode.active {
                     if let Some(tab) = tabs.active_tab() {
                         let mut state = tab.terminal.lock().unwrap();
                         let sb_len = state.grid.scrollback_len();
@@ -438,6 +449,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                             let new_offset = sb_len.saturating_sub(cursor_row as usize + 1 - visible_rows);
                             state.grid.set_scroll_offset(new_offset);
                         }
+                    }
                     }
 
                     render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, hover_url_range, pomodoro.is_input_blocked(), scrollbar_dragging || scrollbar_visible_until.map_or(false, |t| t > Instant::now()), copy_flash);
