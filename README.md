@@ -16,12 +16,18 @@ A terminal app that grows — GPU-accelerated terminal emulator written in Rust 
 
 - **GPU Rendering** — wgpu-based 2-pass rendering (background + glyphs)
 - **Korean Support** — IME input with preedit overlay, wide character handling, D2Coding font
+- **Tabs** — Cmd+T/W to open/close, Cmd+1-9 to switch, Cmd+Shift+[/] to cycle, click tab bar, new tabs inherit working directory
 - **VT Parsing** — SGR attributes (bold, dim, italic, underline, strikethrough, inverse), 256/RGB color, cursor movement, screen clearing
-- **Scrollback** — 10,000 line history, Cmd+PageUp/PageDown, visual scrollbar
-- **Mouse Selection & Clipboard** — Drag selection with wide character awareness, Cmd+C/V
+- **TUI App Support** — Alternate screen, scroll regions, mouse tracking (SGR), bracketed paste, synchronized output, cursor visibility (DECTCEM)
+- **Scrollback** — 10,000 line history, Cmd+PageUp/PageDown, draggable auto-hiding scrollbar
+- **Copy Mode** — Vim-style copy mode (Cmd+Shift+C) with hjkl navigation
+- **Mouse Selection & Clipboard** — Drag selection with wide character awareness, Cmd+C/V, Cmd+A to copy input line
+- **URL Highlight** — Cmd+hover to underline and detect URLs
+- **Pomodoro Timer** — 25min work / 3min break cycle with input blocking
+- **Response Timer** — Per-tab command response time measurement
 - **Font Zoom** — Cmd+=/- to adjust size (8pt–72pt)
 - **Box Drawing** — Light, heavy, double, and rounded corner characters with geometric rendering
-- **Keyboard** — xterm-style encoding, Shift/Ctrl/Alt modifier combinations
+- **Keyboard** — xterm-style encoding, Shift/Ctrl/Alt modifier combinations, kitty keyboard protocol
 
 ## Architecture
 
@@ -97,7 +103,7 @@ Builds the release binary and installs `growTerm.app` to `/Applications`.
 cargo test
 ```
 
-258+ tests (unit + integration).
+594+ tests (unit + integration).
 
 ## Requirements
 
