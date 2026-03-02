@@ -129,6 +129,88 @@ pub fn extract_text(cells: &[Vec<Cell>], selection: &Selection) -> String {
     result
 }
 
+/// Extract the input line text, using Ink prompt detection if available,
+/// falling back to the cursor line.
+/// Returns (text, prompt_row) where prompt_row is the screen row for flash.
+pub fn input_line_text(grid: &growterm_grid::Grid) -> (String, u16) {
+    let cells = grid.cells();
+    if let Some(prompt_row) = crate::ink_workaround::find_prompt_row(cells) {
+        let bottom = crate::ink_workaround::find_input_bottom(cells, prompt_row);
+        let mut result = String::new();
+        for row_idx in prompt_row..=bottom {
+            let line = &cells[row_idx];
+            let mut line_text = String::new();
+            let mut col = 0;
+            while col < line.len() {
+                let cell = &line[col];
+                // Skip Ink's INVERSE cursor cell
+                if cell.flags.contains(CellFlags::INVERSE) {
+                    col += 1;
+                    continue;
+                }
+                if cell.flags.contains(CellFlags::WIDE_CHAR) {
+                    line_text.push(cell.character);
+                    col += 2;
+                } else if cell.character == '\0' {
+                    line_text.push(' ');
+                    col += 1;
+                } else {
+                    line_text.push(cell.character);
+                    col += 1;
+                }
+            }
+            let trimmed = line_text.trim_end();
+            if !result.is_empty() && !trimmed.is_empty() {
+                result.push('\n');
+            }
+            result.push_str(trimmed);
+        }
+        // Strip leading prompt symbol followed by space
+        let result = if let Some(rest) = result.strip_prefix("❯ ")       // U+276F
+            .or_else(|| result.strip_prefix("\u{276F} "))                 // U+276F explicit
+            .or_else(|| result.strip_prefix("› "))                        // U+203A
+            .or_else(|| result.strip_prefix("\u{203A} "))                 // U+203A explicit
+            .or_else(|| result.strip_prefix("> "))                        // U+003E
+            .or_else(|| result.strip_prefix("\u{276D} "))                 // U+276D ❭
+            .or_else(|| result.strip_prefix("\u{BB} "))                   // U+00BB »
+        {
+            rest.to_string()
+        } else {
+            result
+        };
+        return (result, prompt_row as u16);
+    }
+    let row = grid.cursor_pos().0;
+    (cursor_line_text(grid), row)
+}
+
+/// Extract the text of the cursor line from the grid (trailing whitespace trimmed).
+pub fn cursor_line_text(grid: &growterm_grid::Grid) -> String {
+    let (cursor_row, _) = grid.cursor_pos();
+    let cells = grid.cells();
+    let row = cursor_row as usize;
+    if row >= cells.len() {
+        return String::new();
+    }
+    let line = &cells[row];
+    let mut text = String::new();
+    let mut col = 0;
+    while col < line.len() {
+        let cell = &line[col];
+        if cell.flags.contains(CellFlags::WIDE_CHAR) {
+            text.push(cell.character);
+            col += 2;
+        } else if cell.character == '\0' {
+            text.push(' ');
+            col += 1;
+        } else {
+            text.push(cell.character);
+            col += 1;
+        }
+    }
+    text.trim_end().to_string()
+}
+
 /// Extract text using absolute row coordinates from scrollback + screen cells.
 pub fn extract_text_absolute(grid: &growterm_grid::Grid, selection: &Selection) -> String {
     if selection.is_empty() {
@@ -371,6 +453,84 @@ mod tests {
         sel.start = (0, 6);
         sel.end = (0, 10);
         assert_eq!(extract_text(&cells, &sel), "World");
+    }
+
+    #[test]
+    fn input_line_text_with_ink_prompt() {
+        use growterm_grid::Grid;
+        use growterm_types::TerminalCommand;
+
+        let mut grid = Grid::new(80, 10);
+        // Row 0: separator ─────
+        for c in "─────".chars() {
+            grid.apply(&TerminalCommand::Print(c));
+        }
+        // Move to row 1: prompt line ❯ hello
+        grid.apply(&TerminalCommand::CursorPosition { row: 2, col: 1 });
+        for c in "❯ hello".chars() {
+            grid.apply(&TerminalCommand::Print(c));
+        }
+        // Row 2: separator ─────
+        grid.apply(&TerminalCommand::CursorPosition { row: 3, col: 1 });
+        for c in "─────".chars() {
+            grid.apply(&TerminalCommand::Print(c));
+        }
+        // Cursor elsewhere (like Claude Code does)
+        grid.apply(&TerminalCommand::CursorPosition { row: 5, col: 1 });
+
+        let (text, flash_row) = input_line_text(&grid);
+        assert_eq!(text, "hello");
+        assert_eq!(flash_row, 1); // prompt is on row 1
+    }
+
+    #[test]
+    fn input_line_text_falls_back_to_cursor_line() {
+        use growterm_grid::Grid;
+        use growterm_types::TerminalCommand;
+
+        // No Ink prompt pattern, falls back to cursor_line_text
+        let mut grid = Grid::new(80, 10);
+        for c in "$ ls -la".chars() {
+            grid.apply(&TerminalCommand::Print(c));
+        }
+        let (text, flash_row) = input_line_text(&grid);
+        assert_eq!(text, "$ ls -la");
+        assert_eq!(flash_row, 0); // cursor is on row 0
+    }
+
+    #[test]
+    fn cursor_line_text_basic() {
+        use growterm_grid::Grid;
+        use growterm_types::TerminalCommand;
+
+        let mut grid = Grid::new(80, 24);
+        for c in "hello world".chars() {
+            grid.apply(&TerminalCommand::Print(c));
+        }
+        let text = cursor_line_text(&grid);
+        assert_eq!(text, "hello world");
+    }
+
+    #[test]
+    fn cursor_line_text_trims_trailing_spaces() {
+        use growterm_grid::Grid;
+        use growterm_types::TerminalCommand;
+
+        let mut grid = Grid::new(80, 24);
+        for c in "hi".chars() {
+            grid.apply(&TerminalCommand::Print(c));
+        }
+        let text = cursor_line_text(&grid);
+        assert_eq!(text, "hi");
+    }
+
+    #[test]
+    fn cursor_line_text_empty_grid() {
+        use growterm_grid::Grid;
+
+        let grid = Grid::new(80, 24);
+        let text = cursor_line_text(&grid);
+        assert_eq!(text, "");
     }
 
     #[test]

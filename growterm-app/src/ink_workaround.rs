@@ -109,7 +109,7 @@ fn find_ink_cursor(cells: &[Vec<Cell>], prompt_row: usize, bottom: usize) -> Opt
 }
 
 /// Find the row index of the last input row (before the next separator).
-fn find_input_bottom(cells: &[Vec<Cell>], prompt_row: usize) -> usize {
+pub fn find_input_bottom(cells: &[Vec<Cell>], prompt_row: usize) -> usize {
     for row_idx in (prompt_row + 1)..cells.len() {
         if cells[row_idx]
             .first()
@@ -187,7 +187,7 @@ fn has_descendant_named(root_pid: u32, name: &str) -> bool {
 }
 
 /// Find the prompt row (❯) between two separator lines (─) in the grid.
-fn find_prompt_row(cells: &[Vec<Cell>]) -> Option<usize> {
+pub fn find_prompt_row(cells: &[Vec<Cell>]) -> Option<usize> {
     let is_separator = |row: &[Cell]| -> bool {
         row.first().map_or(false, |c| c.character == '─')
     };
