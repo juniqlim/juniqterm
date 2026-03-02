@@ -64,6 +64,8 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
         window.set_response_timer_checked(true);
     }
     let mut copy_mode = CopyMode::new();
+    let mut coaching_enabled = load_coaching_enabled();
+    window.set_coaching_checked(coaching_enabled);
     let mut pomodoro = Pomodoro::new();
     if load_pomodoro_enabled() {
         pomodoro.toggle();
@@ -786,9 +788,11 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                     }
                 }
                 if pomodoro.tick() == TickResult::StartedBreak {
-                    let tab_text = extract_pomodoro_tab_text(&tabs, &pomodoro);
-                    let ai_handle = pomodoro.ai_response_handle();
-                    crate::pomodoro::spawn_ai_coaching(tab_text, ai_handle);
+                    if coaching_enabled {
+                        let tab_text = extract_pomodoro_tab_text(&tabs, &pomodoro);
+                        let ai_handle = pomodoro.ai_response_handle();
+                        crate::pomodoro::spawn_ai_coaching(tab_text, ai_handle);
+                    }
                 }
                 // Feed PTY output timestamp to each tab's response timer
                 for tab in tabs.tabs_mut() {
@@ -911,6 +915,11 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                 window.set_response_timer_checked(response_timer_enabled);
                 let title = build_title(&pomodoro, &tabs);
                 window.set_title(&title);
+            }
+            AppEvent::ToggleCoaching => {
+                coaching_enabled = !coaching_enabled;
+                save_coaching_enabled(coaching_enabled);
+                window.set_coaching_checked(coaching_enabled);
             }
             AppEvent::CloseRequested => {
                 std::process::exit(0);
@@ -1043,6 +1052,28 @@ fn load_response_timer_enabled() -> bool {
 
 fn save_response_timer_enabled(enabled: bool) {
     let path = response_timer_config_path();
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(path, if enabled { "1" } else { "0" });
+}
+
+fn coaching_config_path() -> std::path::PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    std::path::PathBuf::from(home)
+        .join(".config")
+        .join("growterm")
+        .join("coaching_enabled")
+}
+
+fn load_coaching_enabled() -> bool {
+    std::fs::read_to_string(coaching_config_path())
+        .map(|s| s.trim() != "0")
+        .unwrap_or(true)
+}
+
+fn save_coaching_enabled(enabled: bool) {
+    let path = coaching_config_path();
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }

@@ -210,6 +210,11 @@ define_class! {
             self.send_event(AppEvent::ToggleResponseTimer);
         }
 
+        #[unsafe(method(toggleCoaching:))]
+        fn toggle_coaching(&self, _sender: &AnyObject) {
+            self.send_event(AppEvent::ToggleCoaching);
+        }
+
         #[unsafe(method(viewDidChangeBackingProperties))]
         fn view_did_change_backing_properties(&self) {
             let _: () = unsafe { msg_send![super(self), viewDidChangeBackingProperties] };

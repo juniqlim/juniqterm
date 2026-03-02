@@ -29,6 +29,8 @@ pub enum AppEvent {
     TogglePomodoro,
     /// 응답 타이머 토글
     ToggleResponseTimer,
+    /// AI 코칭 토글
+    ToggleCoaching,
 }
 
 bitflags::bitflags! {

@@ -108,6 +108,16 @@ fn setup_main_menu(app: &NSApplication) {
             &response_timer_key,
         );
         view_menu.addItem(&response_timer_item);
+
+        let coaching_title = NSString::from_str("AI Coaching");
+        let coaching_key = NSString::from_str("");
+        let coaching_item = NSMenuItem::initWithTitle_action_keyEquivalent(
+            mtm.alloc(),
+            &coaching_title,
+            Some(objc2::sel!(toggleCoaching:)),
+            &coaching_key,
+        );
+        view_menu.addItem(&coaching_item);
         view_menu_item.setSubmenu(Some(&view_menu));
 
         app.setMainMenu(Some(&menubar));
