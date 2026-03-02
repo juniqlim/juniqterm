@@ -8,7 +8,7 @@ use growterm_macos::{AppEvent, MacWindow, Modifiers};
 
 use crate::copy_mode::CopyMode;
 use crate::ink_workaround::InkImeState;
-use crate::pomodoro::Pomodoro;
+use crate::pomodoro::{Pomodoro, TickResult};
 use crate::selection::{self, Selection};
 use crate::tab::{Tab, TabManager};
 use crate::url;
@@ -95,7 +95,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                 if pomodoro.is_input_blocked() {
                     continue;
                 }
-                pomodoro.on_input();
+                pomodoro.on_input(&tab_scrollback_lens(&tabs));
                 if let Some(tab) = tabs.active_tab_mut() {
                     let _ = tab.pty_writer.write_all(text.as_bytes());
                     let _ = tab.pty_writer.flush();
@@ -469,7 +469,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                     growterm_macos::convert_key(keycode, characters.as_deref(), modifiers)
                 {
                     let bytes = growterm_input::encode(key_event);
-                    pomodoro.on_input();
+                    pomodoro.on_input(&tab_scrollback_lens(&tabs));
                     if bytes == b"\r" || bytes == b"\n" {
                         ink_state.on_enter();
                         if let Some(tab) = tabs.active_tab_mut() {
@@ -785,7 +785,11 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                         copy_flash = None;
                     }
                 }
-                pomodoro.tick();
+                if pomodoro.tick() == TickResult::StartedBreak {
+                    let tab_text = extract_pomodoro_tab_text(&tabs, &pomodoro);
+                    let ai_handle = pomodoro.ai_response_handle();
+                    crate::pomodoro::spawn_ai_coaching(tab_text, ai_handle);
+                }
                 // Feed PTY output timestamp to each tab's response timer
                 for tab in tabs.tabs_mut() {
                     let ts = tab.last_pty_output_at.lock().unwrap().take();
@@ -923,6 +927,46 @@ fn spawn_new_window() {
         // Dev environment — run binary directly
         let _ = std::process::Command::new(exe).spawn();
     }
+}
+
+/// Collect (tab_index, scrollback_len) for all tabs.
+fn tab_scrollback_lens(tabs: &TabManager) -> Vec<(usize, usize)> {
+    tabs.tabs()
+        .iter()
+        .enumerate()
+        .map(|(i, tab)| {
+            let state = tab.terminal.lock().unwrap();
+            let sb_len = state.grid.scrollback_len() + state.grid.cells().len();
+            (i, sb_len)
+        })
+        .collect()
+}
+
+/// Extract terminal text from each tab since the pomodoro work phase started.
+fn extract_pomodoro_tab_text(tabs: &TabManager, pomodoro: &Pomodoro) -> String {
+    let snapshot = pomodoro.scrollback_snapshot();
+    let mut result = String::new();
+    for (i, tab) in tabs.tabs().iter().enumerate() {
+        let state = tab.terminal.lock().unwrap();
+        let start_abs = *snapshot.get(&i).unwrap_or(&0);
+        let current_total = state.grid.scrollback_len() + state.grid.cells().len();
+        if current_total <= start_abs {
+            continue;
+        }
+        if !result.is_empty() {
+            result.push_str("\n\n");
+        }
+        result.push_str(&format!("[Tab {}]\n", i + 1));
+        for abs_row in start_abs..current_total {
+            let text = selection::row_text_absolute(&state.grid, abs_row as u32);
+            let trimmed = text.trim_end();
+            if !trimmed.is_empty() {
+                result.push_str(trimmed);
+            }
+            result.push('\n');
+        }
+    }
+    result
 }
 
 fn build_title(pomodoro: &Pomodoro, tabs: &TabManager) -> String {

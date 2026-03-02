@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 const WORK_SECS: u64 = 25 * 60;
@@ -10,10 +12,20 @@ pub enum Phase {
     Break,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TickResult {
+    Noop,
+    StartedBreak,
+}
+
 pub struct Pomodoro {
     enabled: bool,
     phase: Phase,
     started_at: Option<Instant>,
+    /// Tab index → scrollback length at the moment Working phase started.
+    scrollback_snapshot: HashMap<usize, usize>,
+    /// AI coaching response lines, shared with the background thread.
+    ai_response: Arc<Mutex<Option<Vec<String>>>>,
 }
 
 impl Pomodoro {
@@ -22,6 +34,8 @@ impl Pomodoro {
             enabled: false,
             phase: Phase::Idle,
             started_at: None,
+            scrollback_snapshot: HashMap::new(),
+            ai_response: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -30,6 +44,8 @@ impl Pomodoro {
         if !self.enabled {
             self.phase = Phase::Idle;
             self.started_at = None;
+            self.scrollback_snapshot.clear();
+            *self.ai_response.lock().unwrap() = None;
         }
     }
 
@@ -42,33 +58,44 @@ impl Pomodoro {
         self.phase
     }
 
-    /// Called when user types. Starts work timer if idle.
-    pub fn on_input(&mut self) {
-        self.on_input_at(Instant::now());
+    /// Returns the scrollback snapshot (tab index → scrollback length at work start).
+    pub fn scrollback_snapshot(&self) -> &HashMap<usize, usize> {
+        &self.scrollback_snapshot
     }
 
-    fn on_input_at(&mut self, now: Instant) {
+    /// Called when user types. Starts work timer if idle.
+    /// `tab_scrollback_lens` provides current scrollback length per tab index.
+    pub fn on_input(&mut self, tab_scrollback_lens: &[(usize, usize)]) {
+        self.on_input_at(Instant::now(), tab_scrollback_lens);
+    }
+
+    fn on_input_at(&mut self, now: Instant, tab_scrollback_lens: &[(usize, usize)]) {
         if !self.enabled {
             return;
         }
         if self.phase == Phase::Idle {
             self.phase = Phase::Working;
             self.started_at = Some(now);
+            self.scrollback_snapshot.clear();
+            *self.ai_response.lock().unwrap() = None;
+            for &(tab_idx, sb_len) in tab_scrollback_lens {
+                self.scrollback_snapshot.insert(tab_idx, sb_len);
+            }
         }
     }
 
     /// Called periodically. Transitions state if time elapsed.
-    pub fn tick(&mut self) {
-        self.tick_at(Instant::now());
+    pub fn tick(&mut self) -> TickResult {
+        self.tick_at(Instant::now())
     }
 
-    fn tick_at(&mut self, now: Instant) {
+    fn tick_at(&mut self, now: Instant) -> TickResult {
         if !self.enabled {
-            return;
+            return TickResult::Noop;
         }
         let started = match self.started_at {
             Some(t) => t,
-            None => return,
+            None => return TickResult::Noop,
         };
         let elapsed = now.duration_since(started).as_secs();
         match self.phase {
@@ -76,32 +103,51 @@ impl Pomodoro {
                 if elapsed >= WORK_SECS {
                     self.phase = Phase::Break;
                     self.started_at = Some(now);
+                    return TickResult::StartedBreak;
                 }
             }
             Phase::Break => {
                 if elapsed >= BREAK_SECS {
                     self.phase = Phase::Idle;
                     self.started_at = None;
+                    self.scrollback_snapshot.clear();
                 }
             }
             Phase::Idle => {}
         }
+        TickResult::Noop
     }
 
     pub fn is_input_blocked(&self) -> bool {
         self.enabled && self.phase == Phase::Break
     }
 
+    /// Set the AI coaching response from the background thread handle.
+    pub fn set_ai_response(&self, lines: Vec<String>) {
+        *self.ai_response.lock().unwrap() = Some(lines);
+    }
+
+    /// Get a clone of the Arc for the background thread to write into.
+    pub fn ai_response_handle(&self) -> Arc<Mutex<Option<Vec<String>>>> {
+        Arc::clone(&self.ai_response)
+    }
+
     pub fn coaching_lines(&self) -> Option<Vec<String>> {
         if self.phase != Phase::Break {
             return None;
         }
-        Some(vec![
-            "[Coaching]".to_string(),
-            String::new(),
-            "25분 집중 완료!".to_string(),
-            "잠시 눈을 쉬고, 다음 목표를 정리해보세요.".to_string(),
-        ])
+        let guard = self.ai_response.lock().unwrap();
+        if let Some(ref lines) = *guard {
+            let mut result = vec!["[Coaching]".to_string(), String::new()];
+            result.extend(lines.iter().cloned());
+            Some(result)
+        } else {
+            Some(vec![
+                "[Coaching]".to_string(),
+                String::new(),
+                "분석 중...".to_string(),
+            ])
+        }
     }
 
     /// Returns display text for the timer, or None if idle.
@@ -129,6 +175,79 @@ impl Pomodoro {
                 Some(format!("\u{2615} {m:02}:{s:02}"))
             }
             Phase::Idle => None,
+        }
+    }
+}
+
+/// Spawn a background thread that calls `claude -p` with the given prompt+text
+/// and writes the result into the shared `ai_response`.
+pub fn spawn_ai_coaching(
+    tab_text: String,
+    ai_response: Arc<Mutex<Option<Vec<String>>>>,
+) {
+    std::thread::spawn(move || {
+        let prompt = format!(
+            "아래는 터미널에서 25분간 작업한 내용입니다. 탭별로 구분되어 있습니다.\n\
+             이 작업 과정을 보고 짧은 코칭 피드백을 한국어로 3-4문장 이내로 주세요.\n\
+             집중도, 문제 해결 방식, 개선할 점 위주로 피드백하세요.\n\n\
+             {tab_text}"
+        );
+        let result = std::process::Command::new("claude")
+            .args(["-p", &prompt])
+            .output();
+        let lines = match result {
+            Ok(output) => {
+                let text = String::from_utf8_lossy(&output.stdout);
+                text.lines().map(|l| l.to_string()).collect()
+            }
+            Err(e) => {
+                vec![format!("AI 호출 실패: {e}")]
+            }
+        };
+        save_coaching_file(&coaching_dir(), &lines);
+        *ai_response.lock().unwrap() = Some(lines);
+    });
+}
+
+fn coaching_dir() -> std::path::PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    std::path::PathBuf::from(home)
+        .join(".config")
+        .join("growterm")
+        .join("coaching")
+}
+
+fn save_coaching_file(dir: &std::path::Path, lines: &[String]) {
+    if let Err(e) = std::fs::create_dir_all(dir) {
+        eprintln!("Failed to create coaching dir: {e}");
+        return;
+    }
+    let filename = local_timestamp_filename();
+    let path = dir.join(filename);
+    let content = lines.join("\n");
+    if let Err(e) = std::fs::write(&path, &content) {
+        eprintln!("Failed to save coaching file: {e}");
+    }
+}
+
+fn local_timestamp_filename() -> String {
+    use std::process::Command;
+    // Use `date` command for local time formatting (no chrono dependency)
+    let output = Command::new("date")
+        .arg("+%Y%m%d_%H%M%S")
+        .output();
+    match output {
+        Ok(o) => {
+            let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            format!("{s}.md")
+        }
+        Err(_) => {
+            // Fallback: use Unix timestamp
+            let secs = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            format!("{secs}.md")
         }
     }
 }
@@ -166,51 +285,59 @@ mod tests {
     fn toggle_off_resets_state() {
         let mut p = enabled_pomodoro();
         let now = Instant::now();
-        p.on_input_at(now);
+        p.on_input_at(now, &[(0, 100)]);
         assert_eq!(p.phase(), Phase::Working);
 
         p.toggle(); // disable
         assert_eq!(p.phase(), Phase::Idle);
         assert!(!p.is_input_blocked());
+        assert!(p.scrollback_snapshot.is_empty());
     }
 
     #[test]
     fn on_input_ignored_when_disabled() {
         let mut p = Pomodoro::new(); // disabled
         let now = Instant::now();
-        p.on_input_at(now);
+        p.on_input_at(now, &[(0, 50)]);
         assert_eq!(p.phase(), Phase::Idle);
+        assert!(p.scrollback_snapshot.is_empty());
     }
 
     #[test]
-    fn on_input_starts_working() {
+    fn on_input_starts_working_and_snapshots_scrollback() {
         let mut p = enabled_pomodoro();
         let now = Instant::now();
-        p.on_input_at(now);
+        p.on_input_at(now, &[(0, 100), (1, 200)]);
         assert_eq!(p.phase(), Phase::Working);
         assert!(!p.is_input_blocked());
+        assert_eq!(p.scrollback_snapshot[&0], 100);
+        assert_eq!(p.scrollback_snapshot[&1], 200);
     }
 
     #[test]
     fn on_input_during_working_is_noop() {
         let mut p = enabled_pomodoro();
         let now = Instant::now();
-        p.on_input_at(now);
+        p.on_input_at(now, &[(0, 100)]);
         let before = p.started_at;
-        p.on_input_at(now + Duration::from_secs(10));
+        p.on_input_at(now + Duration::from_secs(10), &[(0, 150)]);
         assert_eq!(p.started_at, before);
+        // Snapshot should not change
+        assert_eq!(p.scrollback_snapshot[&0], 100);
     }
 
     #[test]
-    fn tick_transitions_working_to_break_after_25min() {
+    fn tick_returns_started_break_on_transition() {
         let mut p = enabled_pomodoro();
         let now = Instant::now();
-        p.on_input_at(now);
+        p.on_input_at(now, &[(0, 50)]);
 
-        p.tick_at(now + Duration::from_secs(WORK_SECS - 1));
+        let result = p.tick_at(now + Duration::from_secs(WORK_SECS - 1));
+        assert_eq!(result, TickResult::Noop);
         assert_eq!(p.phase(), Phase::Working);
 
-        p.tick_at(now + Duration::from_secs(WORK_SECS));
+        let result = p.tick_at(now + Duration::from_secs(WORK_SECS));
+        assert_eq!(result, TickResult::StartedBreak);
         assert_eq!(p.phase(), Phase::Break);
         assert!(p.is_input_blocked());
     }
@@ -219,7 +346,7 @@ mod tests {
     fn tick_transitions_break_to_idle_after_3min() {
         let mut p = enabled_pomodoro();
         let now = Instant::now();
-        p.on_input_at(now);
+        p.on_input_at(now, &[(0, 0)]);
 
         let break_start = now + Duration::from_secs(WORK_SECS);
         p.tick_at(break_start);
@@ -234,10 +361,51 @@ mod tests {
     }
 
     #[test]
+    fn coaching_lines_shows_analyzing_before_ai_response() {
+        let mut p = enabled_pomodoro();
+        let now = Instant::now();
+        p.on_input_at(now, &[(0, 0)]);
+        p.tick_at(now + Duration::from_secs(WORK_SECS));
+
+        let lines = p.coaching_lines().expect("should return lines during break");
+        assert_eq!(lines[0], "[Coaching]");
+        assert!(lines.iter().any(|l| l.contains("분석 중")));
+    }
+
+    #[test]
+    fn coaching_lines_shows_ai_response_when_available() {
+        let mut p = enabled_pomodoro();
+        let now = Instant::now();
+        p.on_input_at(now, &[(0, 0)]);
+        p.tick_at(now + Duration::from_secs(WORK_SECS));
+
+        p.set_ai_response(vec![
+            "잘 집중했습니다.".to_string(),
+            "다음엔 커밋을 더 자주 하세요.".to_string(),
+        ]);
+
+        let lines = p.coaching_lines().expect("should return lines during break");
+        assert_eq!(lines[0], "[Coaching]");
+        assert!(lines.iter().any(|l| l.contains("잘 집중")));
+        assert!(lines.iter().any(|l| l.contains("커밋")));
+    }
+
+    #[test]
+    fn coaching_lines_returns_none_when_not_break() {
+        let mut p = enabled_pomodoro();
+        assert!(p.coaching_lines().is_none(), "Idle -> None");
+
+        let now = Instant::now();
+        p.on_input_at(now, &[(0, 0)]);
+        assert_eq!(p.phase(), Phase::Working);
+        assert!(p.coaching_lines().is_none(), "Working -> None");
+    }
+
+    #[test]
     fn display_text_during_working() {
         let mut p = enabled_pomodoro();
         let now = Instant::now();
-        p.on_input_at(now);
+        p.on_input_at(now, &[(0, 0)]);
 
         let text = p.display_text_at(now + Duration::from_secs(30)).unwrap();
         assert!(text.starts_with('\u{1F345}')); // 🍅
@@ -248,7 +416,7 @@ mod tests {
     fn display_text_during_break() {
         let mut p = enabled_pomodoro();
         let now = Instant::now();
-        p.on_input_at(now);
+        p.on_input_at(now, &[(0, 0)]);
 
         let break_start = now + Duration::from_secs(WORK_SECS);
         p.tick_at(break_start);
@@ -259,37 +427,11 @@ mod tests {
     }
 
     #[test]
-    fn coaching_lines_returns_text_during_break() {
-        let mut p = enabled_pomodoro();
-        let now = Instant::now();
-        p.on_input_at(now);
-
-        let break_start = now + Duration::from_secs(WORK_SECS);
-        p.tick_at(break_start);
-        assert_eq!(p.phase(), Phase::Break);
-
-        let lines = p.coaching_lines().expect("should return lines during break");
-        assert_eq!(lines[0], "[Coaching]");
-        assert!(lines.len() >= 3);
-    }
-
-    #[test]
-    fn coaching_lines_returns_none_when_not_break() {
-        let mut p = enabled_pomodoro();
-        assert!(p.coaching_lines().is_none(), "Idle -> None");
-
-        let now = Instant::now();
-        p.on_input_at(now);
-        assert_eq!(p.phase(), Phase::Working);
-        assert!(p.coaching_lines().is_none(), "Working -> None");
-    }
-
-    #[test]
     fn full_cycle_idle_work_break_idle() {
         let mut p = enabled_pomodoro();
         let now = Instant::now();
 
-        p.on_input_at(now);
+        p.on_input_at(now, &[(0, 10)]);
         assert_eq!(p.phase(), Phase::Working);
 
         let t1 = now + Duration::from_secs(WORK_SECS);
@@ -300,7 +442,36 @@ mod tests {
         p.tick_at(t2);
         assert_eq!(p.phase(), Phase::Idle);
 
-        p.on_input_at(t2 + Duration::from_secs(1));
+        p.on_input_at(t2 + Duration::from_secs(1), &[(0, 50)]);
         assert_eq!(p.phase(), Phase::Working);
+        // New snapshot for the new cycle
+        assert_eq!(p.scrollback_snapshot[&0], 50);
+    }
+
+    #[test]
+    fn save_coaching_file_creates_md() {
+        let dir = std::env::temp_dir().join(format!("growterm_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let lines = vec![
+            "좋은 집중력이었습니다.".to_string(),
+            "커밋을 더 자주 해보세요.".to_string(),
+        ];
+        save_coaching_file(&dir, &lines);
+
+        let entries: Vec<_> = std::fs::read_dir(&dir)
+            .expect("dir should exist")
+            .filter_map(|e| e.ok())
+            .collect();
+        assert_eq!(entries.len(), 1);
+
+        let path = entries[0].path();
+        assert!(path.extension().unwrap() == "md");
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("좋은 집중력"));
+        assert!(content.contains("커밋"));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
