@@ -1,7 +1,18 @@
 use growterm_types::{Cell, CellFlags, Color, TerminalCommand};
 use unicode_width::UnicodeWidthChar;
+use std::io::Write;
 
 const MAX_SCROLLBACK: usize = 10_000;
+
+fn debug_log(msg: &str) {
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/tmp/growterm-debug.log")
+    {
+        let _ = writeln!(f, "{}", msg);
+    }
+}
 
 struct SavedScreen {
     cells: Vec<Vec<Cell>>,
@@ -262,8 +273,17 @@ impl Grid {
         let blank = vec![Cell::default(); self.cols];
         for _ in 0..n {
             let removed = self.cells.remove(top);
-            if self.in_alt_screen {
+            if top == 0 || self.in_alt_screen {
+                // Line scrolled off the top of screen (or alt screen) - save to scrollback
                 self.scrollback.push(removed);
+                if self.scrollback.len() > MAX_SCROLLBACK {
+                    self.scrollback.remove(0);
+                    self.scroll_offset = self.scroll_offset.min(self.scrollback.len());
+                }
+                if self.scroll_offset > 0 {
+                    self.scroll_offset += 1;
+                    self.scroll_offset = self.scroll_offset.min(self.scrollback.len());
+                }
             }
             self.cells.insert(bottom - 1, blank.clone());
         }
