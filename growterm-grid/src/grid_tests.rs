@@ -912,7 +912,7 @@ fn leave_alt_screen_restores() {
 }
 
 #[test]
-fn alt_screen_does_not_affect_scrollback() {
+fn alt_screen_without_scroll_preserves_original_scrollback() {
     let mut grid = Grid::new(5, 2);
     // Push to scrollback
     for c in "AAAAA".chars() {
@@ -929,6 +929,89 @@ fn alt_screen_does_not_affect_scrollback() {
     grid.apply(&TerminalCommand::EnterAltScreen);
     grid.apply(&TerminalCommand::LeaveAltScreen);
     assert_eq!(grid.scrollback_len(), sb_len);
+}
+
+// === Alt Screen Scrollback Saving ===
+
+#[test]
+fn alt_screen_scroll_saves_to_scrollback() {
+    let mut grid = Grid::new(5, 3);
+    grid.apply(&TerminalCommand::EnterAltScreen);
+    // Fill 3 rows
+    for (r, ch) in ['A', 'B', 'C'].iter().enumerate() {
+        grid.apply(&TerminalCommand::CursorPosition { row: r as u16 + 1, col: 1 });
+        for _ in 0..5 {
+            grid.apply(&TerminalCommand::Print(*ch));
+        }
+    }
+    // Newline at bottom row triggers scroll
+    grid.apply(&TerminalCommand::CursorPosition { row: 3, col: 1 });
+    grid.apply(&TerminalCommand::Newline);
+    // Leave alt screen - scrollback should contain the scrolled-out line
+    grid.apply(&TerminalCommand::LeaveAltScreen);
+    assert!(grid.scrollback_len() >= 1);
+    let last = &grid.scrollback()[grid.scrollback_len() - 1];
+    assert_eq!(last[0].character, 'A');
+}
+
+#[test]
+fn alt_screen_scroll_region_saves_to_scrollback() {
+    let mut grid = Grid::new(5, 5);
+    grid.apply(&TerminalCommand::EnterAltScreen);
+    // Fill rows
+    for (r, ch) in ['A', 'B', 'C', 'D', 'E'].iter().enumerate() {
+        grid.apply(&TerminalCommand::CursorPosition { row: r as u16 + 1, col: 1 });
+        for _ in 0..5 {
+            grid.apply(&TerminalCommand::Print(*ch));
+        }
+    }
+    // Set scroll region rows 2-4 (1-indexed)
+    grid.apply(&TerminalCommand::SetScrollRegion { top: 2, bottom: 4 });
+    // Scroll within region
+    grid.apply(&TerminalCommand::CursorPosition { row: 4, col: 1 });
+    grid.apply(&TerminalCommand::Newline);
+    // The "BBBBB" line that scrolled out of the region should be saved
+    grid.apply(&TerminalCommand::LeaveAltScreen);
+    assert!(grid.scrollback_len() >= 1);
+    let last = &grid.scrollback()[grid.scrollback_len() - 1];
+    assert_eq!(last[0].character, 'B');
+}
+
+#[test]
+fn alt_screen_scrollback_appended_after_original() {
+    let mut grid = Grid::new(5, 2);
+    // Create original scrollback
+    for c in "AAAAA".chars() {
+        grid.apply(&TerminalCommand::Print(c));
+    }
+    grid.apply(&TerminalCommand::CarriageReturn);
+    grid.apply(&TerminalCommand::Newline);
+    for c in "BBBBB".chars() {
+        grid.apply(&TerminalCommand::Print(c));
+    }
+    grid.apply(&TerminalCommand::CarriageReturn);
+    grid.apply(&TerminalCommand::Newline);
+    let original_sb_len = grid.scrollback_len();
+    assert!(original_sb_len >= 1);
+
+    // Enter alt screen and cause scroll
+    grid.apply(&TerminalCommand::EnterAltScreen);
+    for c in "XXXXX".chars() {
+        grid.apply(&TerminalCommand::Print(c));
+    }
+    grid.apply(&TerminalCommand::CarriageReturn);
+    grid.apply(&TerminalCommand::Newline);
+    for c in "YYYYY".chars() {
+        grid.apply(&TerminalCommand::Print(c));
+    }
+    grid.apply(&TerminalCommand::CarriageReturn);
+    grid.apply(&TerminalCommand::Newline);
+
+    grid.apply(&TerminalCommand::LeaveAltScreen);
+    // Original scrollback + alt screen scrollback
+    assert!(grid.scrollback_len() > original_sb_len);
+    assert_eq!(grid.scrollback()[0][0].character, 'A');
+    assert_eq!(grid.scrollback()[original_sb_len][0].character, 'X');
 }
 
 // === Cursor Column (CHA) / Cursor Row (VPA) ===

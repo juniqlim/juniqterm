@@ -30,6 +30,7 @@ pub struct Grid {
     scroll_region_top: usize,
     scroll_region_bottom: usize,
     saved_screen: Option<SavedScreen>,
+    in_alt_screen: bool,
 }
 
 impl Grid {
@@ -51,6 +52,7 @@ impl Grid {
             scroll_region_top: 0,
             scroll_region_bottom: rows,
             saved_screen: None,
+            in_alt_screen: false,
         }
     }
 
@@ -259,7 +261,10 @@ impl Grid {
         let n = (n as usize).min(bottom - top);
         let blank = vec![Cell::default(); self.cols];
         for _ in 0..n {
-            self.cells.remove(top);
+            let removed = self.cells.remove(top);
+            if self.in_alt_screen {
+                self.scrollback.push(removed);
+            }
             self.cells.insert(bottom - 1, blank.clone());
         }
     }
@@ -302,10 +307,12 @@ impl Grid {
         self.cursor_row = 0;
         self.cursor_col = 0;
         self.scroll_offset = 0;
+        self.in_alt_screen = true;
     }
 
     fn leave_alt_screen(&mut self) {
         if let Some(saved) = self.saved_screen.take() {
+            let alt_scrollback = std::mem::take(&mut self.scrollback);
             self.cells = saved.cells;
             self.cursor_row = saved.cursor_row;
             self.cursor_col = saved.cursor_col;
@@ -313,9 +320,11 @@ impl Grid {
             self.current_bg = saved.current_bg;
             self.current_flags = saved.current_flags;
             self.scrollback = saved.scrollback;
+            self.scrollback.extend(alt_scrollback);
             self.scroll_offset = saved.scroll_offset;
             self.cursor_visible = saved.cursor_visible;
         }
+        self.in_alt_screen = false;
     }
 
     fn insert_lines(&mut self, n: u16) {
