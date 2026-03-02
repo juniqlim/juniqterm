@@ -794,6 +794,14 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                     }
                     tab.response_timer.tick();
                 }
+                // Skip rendering while the PTY app is inside a synchronized
+                // output block to avoid painting an intermediate state.
+                let in_sync = tabs
+                    .active_tab()
+                    .map_or(false, |t| t.sync_output.load(Ordering::Relaxed));
+                if in_sync {
+                    continue;
+                }
                 let was_dirty = tabs
                     .active_tab()
                     .map_or(false, |t| t.dirty.swap(false, Ordering::Relaxed));
