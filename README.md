@@ -29,6 +29,38 @@ A terminal app that grows — GPU-accelerated terminal emulator written in Rust 
 - **Box Drawing** — Light, heavy, double, and rounded corner characters with geometric rendering
 - **Keyboard** — xterm-style encoding, Shift/Ctrl/Alt modifier combinations, kitty keyboard protocol
 
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|---|---|
+| Cmd+N | New window |
+| Cmd+T | New tab |
+| Cmd+W | Close tab |
+| Cmd+1–9 | Switch to tab by number |
+| Cmd+Shift+[ / ] | Previous / next tab |
+| Cmd+C | Copy |
+| Cmd+V | Paste |
+| Cmd+A | Copy input line to clipboard |
+| Cmd+= / Cmd+- | Zoom in / out |
+| Cmd+PageUp/Down | Scroll one page |
+| Cmd+Home / End | Scroll to top / bottom |
+| Cmd+Click | Open URL under cursor |
+| `` ` `` or Cmd+Shift+C | Enter / exit copy mode |
+
+### Copy Mode
+
+| Key | Action |
+|---|---|
+| j / k | Move 1 line down / up |
+| h / l | Move 10 lines up / down |
+| v | Toggle visual mode (multi-line selection) |
+| Cmd+C | Copy selection and exit copy mode |
+
+## Recent Changes
+
+- **Claude Code cursor position fix** — Fixed cursor position issues when running Claude Code
+- **Composing language enter** — Pressing Enter during IME composition (e.g. Korean) now commits the character and sends Enter simultaneously
+
 ## Architecture
 
 ```
