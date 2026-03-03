@@ -921,13 +921,46 @@ impl GpuDrawer {
                 let screen_h = self.surface_config.height as f32;
                 let (tab_cw, tab_ch) = self.tab_atlas.cell_size();
                 let tab_ascent = self.tab_atlas.ascent();
+                let line_spacing = tab_ch * 0.4;
 
-                let total_height = lines.len() as f32 * tab_ch;
+                // Word-wrap lines to fit screen width
+                let pad = tab_ch; // padding around text
+                let max_chars = ((screen_w - pad * 4.0) / tab_cw).floor().max(10.0) as usize;
+                let wrapped: Vec<String> = lines.iter().flat_map(|line| {
+                    if line.is_empty() {
+                        return vec![String::new()];
+                    }
+                    let chars: Vec<char> = line.chars().collect();
+                    if chars.len() <= max_chars {
+                        return vec![line.clone()];
+                    }
+                    let mut result = Vec::new();
+                    let mut start = 0;
+                    while start < chars.len() {
+                        let end = (start + max_chars).min(chars.len());
+                        if end == chars.len() {
+                            result.push(chars[start..end].iter().collect());
+                            break;
+                        }
+                        // Find last space for word break
+                        let chunk = &chars[start..end];
+                        if let Some(sp) = chunk.iter().rposition(|&c| c == ' ') {
+                            result.push(chars[start..start + sp].iter().collect());
+                            start = start + sp + 1;
+                        } else {
+                            result.push(chars[start..end].iter().collect());
+                            start = end;
+                        }
+                    }
+                    result
+                }).collect();
+                let lines = &wrapped;
+
+                let total_height = lines.len() as f32 * (tab_ch + line_spacing) - line_spacing;
                 let start_y = (screen_h - total_height) / 2.0;
 
                 // Background box behind coaching text
                 let max_line_w = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0) as f32 * tab_cw;
-                let pad = tab_ch; // padding around text
                 let bg_x = ((screen_w - max_line_w) / 2.0 - pad).max(0.0);
                 let bg_y = (start_y - pad).max(0.0);
                 let bg_w = (max_line_w + pad * 2.0).min(screen_w);
@@ -948,7 +981,7 @@ impl GpuDrawer {
                 for (line_idx, line) in lines.iter().enumerate() {
                     let text_w = line.chars().count() as f32 * tab_cw;
                     let mut cx = (screen_w - text_w) / 2.0;
-                    let line_y = start_y + line_idx as f32 * tab_ch;
+                    let line_y = start_y + line_idx as f32 * (tab_ch + line_spacing);
 
                     for ch in line.chars() {
                         if ch == ' ' {
