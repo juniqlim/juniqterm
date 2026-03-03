@@ -150,6 +150,10 @@ impl MacWindow {
         set_view_menu_item_checked(2, checked);
     }
 
+    pub fn set_coaching_menu_enabled(&self, enabled: bool) {
+        set_view_menu_item_enabled(2, enabled);
+    }
+
     pub fn set_transparent_tab_bar_checked(&self, checked: bool) {
         set_view_menu_item_checked(3, checked);
     }
@@ -193,6 +197,22 @@ fn set_view_menu_item_checked(index: isize, checked: bool) {
                     if let Some(item) = view_menu.itemAtIndex(index) {
                         let state = if checked { 1 } else { 0 };
                         item.setState(state);
+                    }
+                }
+            }
+        }
+    });
+}
+
+fn set_view_menu_item_enabled(index: isize, enabled: bool) {
+    dispatch_async_main(move || {
+        let mtm = MainThreadMarker::new().unwrap();
+        let app = objc2_app_kit::NSApplication::sharedApplication(mtm);
+        if let Some(menu) = app.mainMenu() {
+            if let Some(view_menu_item) = menu.itemAtIndex(1) {
+                if let Some(view_menu) = view_menu_item.submenu() {
+                    if let Some(item) = view_menu.itemAtIndex(index) {
+                        item.setEnabled(enabled);
                     }
                 }
             }

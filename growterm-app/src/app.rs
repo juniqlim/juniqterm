@@ -64,8 +64,15 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
         window.set_response_timer_checked(true);
     }
     let mut copy_mode = CopyMode::new();
+    let mut pomodoro = Pomodoro::new();
+    let pomodoro_initially_enabled = load_pomodoro_enabled();
+    if pomodoro_initially_enabled {
+        pomodoro.toggle();
+        window.set_pomodoro_checked(true);
+    }
     let mut coaching_enabled = load_coaching_enabled();
     window.set_coaching_checked(coaching_enabled);
+    window.set_coaching_menu_enabled(pomodoro_initially_enabled);
     let mut transparent_tab_bar = load_transparent_tab_bar();
     window.set_transparent_tab_bar_checked(transparent_tab_bar);
     window.set_transparent_mode(transparent_tab_bar);
@@ -75,11 +82,6 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
         0.0
     };
     let mut title_bar_height = title_bar_height;
-    let mut pomodoro = Pomodoro::new();
-    if load_pomodoro_enabled() {
-        pomodoro.toggle();
-        window.set_pomodoro_checked(true);
-    }
     // hover_url_range: (abs_row, start_col, end_col) for Cmd+hover URL underline
     let mut hover_url_range: Option<(u32, u16, u16)> = None;
     let mut scrollbar_dragging = false;
@@ -964,6 +966,12 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                 let enabled = pomodoro.is_enabled();
                 save_pomodoro_enabled(enabled);
                 window.set_pomodoro_checked(enabled);
+                window.set_coaching_menu_enabled(enabled);
+                if !enabled {
+                    coaching_enabled = false;
+                    save_coaching_enabled(false);
+                    window.set_coaching_checked(false);
+                }
                 let title = build_title(&pomodoro, &tabs);
                 window.set_title(&title);
             }
