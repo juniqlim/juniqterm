@@ -89,6 +89,18 @@ pub fn pixel_to_cell(x: f32, y: f32, cell_w: f32, cell_h: f32) -> (u16, u16) {
     (row, col)
 }
 
+/// Convert raw mouse pixel coordinates to cell coordinates, accounting for
+/// content y-offset (tab bar + title bar in transparent mode).
+pub fn mouse_pixel_to_cell(
+    x: f32,
+    y: f32,
+    cell_w: f32,
+    cell_h: f32,
+    content_y_offset: f32,
+) -> (u16, u16) {
+    pixel_to_cell(x, y - content_y_offset, cell_w, cell_h)
+}
+
 pub fn extract_text(cells: &[Vec<Cell>], selection: &Selection) -> String {
     if selection.is_empty() {
         return String::new();
@@ -292,6 +304,25 @@ pub fn row_text_absolute(grid: &growterm_grid::Grid, abs_row: u32) -> String {
 mod tests {
     use super::*;
     use growterm_types::{Cell, CellFlags, Color};
+
+    #[test]
+    fn mouse_pixel_to_cell_no_offset() {
+        // No title bar / tab bar offset
+        assert_eq!(mouse_pixel_to_cell(15.0, 25.0, 10.0, 20.0, 0.0), (1, 1));
+    }
+
+    #[test]
+    fn mouse_pixel_to_cell_with_offset() {
+        // Transparent mode: title_bar(50) + tab_bar(30) = 80px offset
+        // Click at y=100 → content y=20 → row 1
+        assert_eq!(mouse_pixel_to_cell(15.0, 100.0, 10.0, 20.0, 80.0), (1, 1));
+    }
+
+    #[test]
+    fn mouse_pixel_to_cell_click_in_header_clamps() {
+        // Click at y=30, offset=80 → content y=-50 → clamped to row 0
+        assert_eq!(mouse_pixel_to_cell(0.0, 30.0, 10.0, 20.0, 80.0), (0, 0));
+    }
 
     #[test]
     fn pixel_to_cell_basic() {

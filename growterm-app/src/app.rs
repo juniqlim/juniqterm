@@ -530,7 +530,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                 let (cw, ch) = drawer.cell_size();
 
                 // Tab bar click: start drag
-                if tabs.show_tab_bar() && (y as f32) < drawer.tab_bar_height() {
+                if tabs.show_tab_bar() && crate::tab::hit_test_tab_bar(y as f32, drawer.tab_bar_height(), tabs.mouse_y_offset(drawer.tab_bar_height(), title_bar_height, screen_full)) {
                     let screen_w = window.inner_size().0 as f32;
                     if let Some(index) = tabs.tab_index_at_x(x as f32, screen_w) {
                         tab_dragging = Some(index);
@@ -583,7 +583,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                 }
 
                 let (screen_row, col) =
-                    selection::pixel_to_cell(x as f32, y as f32 - tabs.mouse_y_offset(drawer.tab_bar_height(), title_bar_height, screen_full), cw, ch);
+                    selection::mouse_pixel_to_cell(x as f32, y as f32, cw, ch, tabs.mouse_y_offset(drawer.tab_bar_height(), title_bar_height, screen_full));
                 let abs_row = if let Some(tab) = tabs.active_tab() {
                     let state = tab.terminal.lock().unwrap();
                     let base = state
@@ -664,11 +664,9 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                     }
                 } else if sel.active {
                     let (cw, ch) = drawer.cell_size();
-                    let (screen_row, col) = selection::pixel_to_cell(
-                        x as f32,
-                        y as f32 - tabs.mouse_y_offset(drawer.tab_bar_height(), title_bar_height, screen_full),
-                        cw,
-                        ch,
+                    let (screen_row, col) = selection::mouse_pixel_to_cell(
+                        x as f32, y as f32, cw, ch,
+                        tabs.mouse_y_offset(drawer.tab_bar_height(), title_bar_height, screen_full),
                     );
                     let abs_row = if let Some(tab) = tabs.active_tab() {
                         let state = tab.terminal.lock().unwrap();
@@ -703,7 +701,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                     continue;
                 }
                 let (cw, ch) = drawer.cell_size();
-                if tabs.show_tab_bar() && (y as f32) < drawer.tab_bar_height() {
+                if tabs.show_tab_bar() && crate::tab::hit_test_tab_bar(y as f32, drawer.tab_bar_height(), tabs.mouse_y_offset(drawer.tab_bar_height(), title_bar_height, screen_full)) {
                     continue;
                 }
 
@@ -725,7 +723,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                 }
 
                 let (screen_row, col) =
-                    selection::pixel_to_cell(x as f32, y as f32 - tabs.mouse_y_offset(drawer.tab_bar_height(), title_bar_height, screen_full), cw, ch);
+                    selection::mouse_pixel_to_cell(x as f32, y as f32, cw, ch, tabs.mouse_y_offset(drawer.tab_bar_height(), title_bar_height, screen_full));
                 let abs_row = if let Some(tab) = tabs.active_tab() {
                     let state = tab.terminal.lock().unwrap();
                     let base = state
@@ -743,11 +741,9 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
             AppEvent::MouseMoved(x, y, modifiers) => {
                 let new_range = if modifiers.contains(Modifiers::SUPER) {
                     let (cw, ch) = drawer.cell_size();
-                    let (screen_row, col) = selection::pixel_to_cell(
-                        x as f32,
-                        y as f32 - tabs.mouse_y_offset(drawer.tab_bar_height(), title_bar_height, screen_full),
-                        cw,
-                        ch,
+                    let (screen_row, col) = selection::mouse_pixel_to_cell(
+                        x as f32, y as f32, cw, ch,
+                        tabs.mouse_y_offset(drawer.tab_bar_height(), title_bar_height, screen_full),
                     );
                     if let Some(tab) = tabs.active_tab() {
                         let state = tab.terminal.lock().unwrap();

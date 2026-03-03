@@ -44,6 +44,12 @@ pub struct TabBarInfo {
 
 /// Compute content Y offset — shared between renderer and mouse coordinate translation.
 /// Must match the renderer's y_off logic exactly.
+/// Returns true if the given y pixel coordinate falls within the tab bar region.
+pub fn hit_test_tab_bar(y: f32, tab_bar_h: f32, content_y_off: f32) -> bool {
+    let top = content_y_off - tab_bar_h;
+    y >= top && y < content_y_off
+}
+
 pub fn content_y_offset(show_tab_bar: bool, tab_bar_h: f32, title_bar_h: f32, screen_full: bool) -> f32 {
     let transparent = title_bar_h > 0.0;
     if transparent && screen_full {
@@ -1238,6 +1244,32 @@ mod tests {
         mgr.add_tab(dummy_tab());
         // transparent + screen_full: renderer uses y_off=0
         assert_eq!(mgr.mouse_y_offset(30.0, 50.0, true), 0.0);
+    }
+
+    #[test]
+    fn hit_test_tab_bar_normal_mode() {
+        // tab_bar_h=30, content_y_off=30 → tab bar occupies [0, 30)
+        assert!(hit_test_tab_bar(0.0, 30.0, 30.0));
+        assert!(hit_test_tab_bar(15.0, 30.0, 30.0));
+        assert!(hit_test_tab_bar(29.9, 30.0, 30.0));
+        assert!(!hit_test_tab_bar(30.0, 30.0, 30.0));
+    }
+
+    #[test]
+    fn hit_test_tab_bar_transparent_mode() {
+        // tab_bar_h=30, content_y_off=80 → tab bar occupies [50, 80)
+        assert!(!hit_test_tab_bar(0.0, 30.0, 80.0));
+        assert!(!hit_test_tab_bar(49.9, 30.0, 80.0));
+        assert!(hit_test_tab_bar(50.0, 30.0, 80.0));
+        assert!(hit_test_tab_bar(65.0, 30.0, 80.0));
+        assert!(hit_test_tab_bar(79.9, 30.0, 80.0));
+        assert!(!hit_test_tab_bar(80.0, 30.0, 80.0));
+    }
+
+    #[test]
+    fn hit_test_tab_bar_screen_full() {
+        // content_y_off=0 → tab bar at [-30, 0), no hit possible
+        assert!(!hit_test_tab_bar(0.0, 30.0, 0.0));
     }
 
     #[test]
