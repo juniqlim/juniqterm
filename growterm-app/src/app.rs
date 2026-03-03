@@ -93,6 +93,22 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
         match event {
             AppEvent::TextCommit(text) => {
                 preedit.clear();
+                // 백틱(`) 또는 ₩: 복사모드 진입/종료
+                if (text == "`" || text == "₩") && !copy_mode.active {
+                    if let Some(tab) = tabs.active_tab() {
+                        let state = tab.terminal.lock().unwrap();
+                        let sb_len = state.grid.scrollback_len() as u32;
+                        let (cursor_row, _cursor_col) = state.grid.cursor_pos();
+                        let abs_cursor_row = sb_len + cursor_row as u32;
+                        let cols = state.grid.cells().first().map_or(80, |r| r.len()) as u16;
+                        drop(state);
+                        copy_mode.enter(abs_cursor_row, cols, &mut sel);
+                        window.set_copy_mode(true);
+                        window.discard_marked_text();
+                    }
+                    render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, hover_url_range, pomodoro.is_input_blocked(), pomodoro.coaching_lines().as_deref(), scrollbar_dragging || scrollbar_visible_until.map_or(false, |t| t > Instant::now()), copy_flash);
+                    continue;
+                }
                 ink_state.on_text_commit(&text);
                 if pomodoro.is_input_blocked() {
                     continue;
@@ -295,9 +311,16 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                         continue;
                     }
 
-                    // Cmd+Shift+C: 복사모드 진입
+                    // Cmd+Shift+C: 복사모드 진입/종료 토글
                     if keycode == kc::ANSI_C && modifiers.contains(Modifiers::SHIFT) {
-                        if let Some(tab) = tabs.active_tab() {
+                        if copy_mode.active {
+                            copy_mode.exit(&mut sel);
+                            window.set_copy_mode(false);
+                            if let Some(tab) = tabs.active_tab() {
+                                let mut state = tab.terminal.lock().unwrap();
+                                state.grid.set_scroll_offset(0);
+                            }
+                        } else if let Some(tab) = tabs.active_tab() {
                             let state = tab.terminal.lock().unwrap();
                             let sb_len = state.grid.scrollback_len() as u32;
                             let (cursor_row, _cursor_col) = state.grid.cursor_pos();
@@ -428,7 +451,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                                 state.grid.set_scroll_offset(0);
                             }
                         }
-                        kc::ESCAPE | kc::ANSI_Q => {
+                        kc::ESCAPE | kc::ANSI_Q | kc::ANSI_GRAVE => {
                             copy_mode.exit(&mut sel);
                             window.set_copy_mode(false);
                             // 스크롤을 맨 아래(입력 위치)로 이동

@@ -72,12 +72,12 @@ impl CopyMode {
         }
     }
 
-    /// h키: 5줄 위로 이동
+    /// h키: 10줄 위로 이동
     pub fn move_left(&mut self, cols: u16, sel: &mut Selection) {
         if !self.active {
             return;
         }
-        let new_row = self.cursor.0.saturating_sub(5);
+        let new_row = self.cursor.0.saturating_sub(10);
         self.cursor.0 = new_row;
         if self.visual {
             self.update_visual_selection(cols, sel);
@@ -86,12 +86,12 @@ impl CopyMode {
         }
     }
 
-    /// l키: 5줄 아래로 이동
+    /// l키: 10줄 아래로 이동
     pub fn move_right(&mut self, cols: u16, max_row: u32, sel: &mut Selection) {
         if !self.active {
             return;
         }
-        let new_row = (self.cursor.0 + 5).min(max_row);
+        let new_row = (self.cursor.0 + 10).min(max_row);
         self.cursor.0 = new_row;
         if self.visual {
             self.update_visual_selection(cols, sel);
@@ -251,27 +251,27 @@ mod tests {
     }
 
     #[test]
-    fn h_moves_5_lines_up() {
+    fn h_moves_10_lines_up() {
         let mut cm = CopyMode::new();
         let mut sel = Selection::default();
-        cm.enter(10, COLS, &mut sel);
+        cm.enter(20, COLS, &mut sel);
 
         cm.move_left(COLS, &mut sel);
-        assert_eq!(cm.cursor.0, 5);
-        assert_eq!(sel.start, (5, 0));
-        assert_eq!(sel.end, (5, COLS - 1));
+        assert_eq!(cm.cursor.0, 10);
+        assert_eq!(sel.start, (10, 0));
+        assert_eq!(sel.end, (10, COLS - 1));
     }
 
     #[test]
-    fn l_moves_5_lines_down() {
+    fn l_moves_10_lines_down() {
         let mut cm = CopyMode::new();
         let mut sel = Selection::default();
         cm.enter(10, COLS, &mut sel);
 
         cm.move_right(COLS, 100, &mut sel);
-        assert_eq!(cm.cursor.0, 15);
-        assert_eq!(sel.start, (15, 0));
-        assert_eq!(sel.end, (15, COLS - 1));
+        assert_eq!(cm.cursor.0, 20);
+        assert_eq!(sel.start, (20, 0));
+        assert_eq!(sel.end, (20, COLS - 1));
     }
 
     #[test]
@@ -303,7 +303,7 @@ mod tests {
 
         cm.move_right(COLS, 100, &mut sel);
         assert_eq!(sel.start, (10, 0));
-        assert_eq!(sel.end, (15, COLS - 1));
+        assert_eq!(sel.end, (20, COLS - 1));
 
         cm.move_left(COLS, &mut sel);
         assert_eq!(sel.start, (10, 0));
