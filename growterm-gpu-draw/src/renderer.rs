@@ -435,6 +435,7 @@ impl GpuDrawer {
         break_text: Option<&[String]>,
         transparent_tab_bar: bool,
         screen_full: bool,
+        title_bar_height: f32,
     ) {
         if self.surface_dirty {
             self.surface_dirty = false;
@@ -459,8 +460,12 @@ impl GpuDrawer {
         });
 
         let (cell_w, cell_h) = self.atlas.cell_size();
-        let y_off = if tab_bar.is_none() || (transparent_tab_bar && screen_full) {
+        let y_off = if transparent_tab_bar && screen_full {
             0.0
+        } else if tab_bar.is_none() {
+            if transparent_tab_bar { title_bar_height } else { 0.0 }
+        } else if transparent_tab_bar {
+            title_bar_height + self.tab_bar_height()
         } else {
             self.tab_bar_height()
         };
@@ -717,14 +722,20 @@ impl GpuDrawer {
             push_rect(&mut bg_vertices, x0, y0, bar_w, h, color);
         }
 
-        // Tab bar (build vertices; rendered as overlay when transparent, as bg when opaque)
+        // Title bar + Tab bar overlay
         let mut tab_bg_verts: Vec<BgVertex> = Vec::new();
         let mut tab_glyph_verts: Vec<GlyphVertex> = Vec::new();
+        // Title bar overlay when no tabs
+        if tab_bar.is_none() && transparent_tab_bar && title_bar_height > 0.0 {
+            let screen_w = self.surface_config.width as f32;
+            push_bg_rect(&mut tab_bg_verts, 0.0, 0.0, screen_w, title_bar_height, [0.0, 0.0, 0.0, 0.8]);
+        }
         if let Some(tab_info) = tab_bar {
             let (tab_cw, tab_ch) = self.tab_atlas.cell_size();
             let tab_ascent = self.tab_atlas.ascent();
             let bar_h = self.tab_bar_height();
             let screen_w = self.surface_config.width as f32;
+            let tab_y = if transparent_tab_bar { title_bar_height } else { 0.0 };
             let bar_bg: [f32; 4] = if transparent_tab_bar {
                 [0.0, 0.0, 0.0, 0.8]
             } else {
@@ -732,14 +743,18 @@ impl GpuDrawer {
             };
             let dragging_bg: [f32; 4] = [0.4, 0.4, 0.2, 1.0];
 
-            push_bg_rect(&mut tab_bg_verts, 0.0, 0.0, screen_w, bar_h, bar_bg);
+            // Title bar overlay (transparent mode only)
+            if transparent_tab_bar && title_bar_height > 0.0 {
+                push_bg_rect(&mut tab_bg_verts, 0.0, 0.0, screen_w, title_bar_height, bar_bg);
+            }
+            push_bg_rect(&mut tab_bg_verts, 0.0, tab_y, screen_w, bar_h, bar_bg);
 
             let tab_count = tab_info.titles.len().max(1) as f32;
             let tab_w = screen_w / tab_count;
             let mut x = 0.0_f32;
             for (i, title) in tab_info.titles.iter().enumerate() {
                 if tab_info.dragging_index == Some(i) {
-                    push_bg_rect(&mut tab_bg_verts, x, 0.0, tab_w, bar_h, dragging_bg);
+                    push_bg_rect(&mut tab_bg_verts, x, tab_y, tab_w, bar_h, dragging_bg);
                 }
 
                 let text_w = title.chars().count() as f32 * tab_cw;
@@ -751,7 +766,7 @@ impl GpuDrawer {
                     }
                     let region = self.ensure_tab_glyph_in_atlas(ch);
                     if region.width > 0 && region.height > 0 {
-                        let baseline_y = (bar_h - tab_ch) / 2.0 + tab_ascent;
+                        let baseline_y = tab_y + (bar_h - tab_ch) / 2.0 + tab_ascent;
                         let gx = cx + region.offset_x;
                         let gy = baseline_y - region.offset_y - region.height as f32;
                         let gw = region.width as f32;

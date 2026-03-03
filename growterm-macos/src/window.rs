@@ -154,6 +154,26 @@ impl MacWindow {
         set_view_menu_item_checked(3, checked);
     }
 
+    pub fn set_transparent_mode(&self, enabled: bool) {
+        let raw = Retained::as_ptr(&self.ns_window) as usize;
+        dispatch_async_main(move || {
+            let window = unsafe { &*(raw as *const NSWindow) };
+            let mut style = window.styleMask();
+            if enabled {
+                style |= NSWindowStyleMask::FullSizeContentView;
+            } else {
+                style -= NSWindowStyleMask::FullSizeContentView;
+            }
+            window.setStyleMask(style);
+        });
+    }
+
+    pub fn title_bar_height(&self) -> f64 {
+        let frame = self.ns_window.frame();
+        let content_rect = self.ns_window.contentLayoutRect();
+        (frame.size.height - content_rect.size.height) * self.backing_scale_factor()
+    }
+
     pub fn show(&self) {
         self.ns_window.makeKeyAndOrderFront(None);
     }

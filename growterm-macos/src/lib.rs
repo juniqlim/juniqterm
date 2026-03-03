@@ -119,7 +119,7 @@ fn setup_main_menu(app: &NSApplication) {
         );
         view_menu.addItem(&coaching_item);
 
-        let transparent_tab_title = NSString::from_str("Transparent Tab Bar");
+        let transparent_tab_title = NSString::from_str("Transparent Mode");
         let transparent_tab_key = NSString::from_str("");
         let transparent_tab_item = NSMenuItem::initWithTitle_action_keyEquivalent(
             mtm.alloc(),
