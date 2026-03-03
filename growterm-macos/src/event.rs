@@ -33,6 +33,8 @@ pub enum AppEvent {
     ToggleCoaching,
     /// 반투명 탭바 토글
     ToggleTransparentTabBar,
+    /// 설정 파일 리로드
+    ReloadConfig,
 }
 
 bitflags::bitflags! {

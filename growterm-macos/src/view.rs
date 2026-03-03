@@ -76,10 +76,12 @@ define_class! {
         fn perform_key_equivalent(&self, event: &NSEvent) -> objc2::runtime::Bool {
             let flags = event.modifierFlags();
             if flags.contains(NSEventModifierFlags::Command) {
-                // Cmd+Q는 메뉴(terminate:)로, Cmd+P는 메뉴(togglePomodoro:)로 처리
+                // Cmd+Q, Cmd+P, Cmd+Shift+R은 메뉴로 처리
                 let kc = event.keyCode();
+                let has_shift = flags.contains(NSEventModifierFlags::Shift);
                 if kc == crate::key_convert::keycode::ANSI_Q
                     || kc == crate::key_convert::keycode::ANSI_P
+                    || (kc == crate::key_convert::keycode::ANSI_R && has_shift)
                 {
                     return objc2::runtime::Bool::NO;
                 }
@@ -218,6 +220,11 @@ define_class! {
         #[unsafe(method(toggleTransparentTabBar:))]
         fn toggle_transparent_tab_bar(&self, _sender: &AnyObject) {
             self.send_event(AppEvent::ToggleTransparentTabBar);
+        }
+
+        #[unsafe(method(reloadConfig:))]
+        fn reload_config(&self, _sender: &AnyObject) {
+            self.send_event(AppEvent::ReloadConfig);
         }
 
         #[unsafe(method(viewDidChangeBackingProperties))]

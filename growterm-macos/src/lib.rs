@@ -129,6 +129,19 @@ fn setup_main_menu(app: &NSApplication) {
             &transparent_tab_key,
         );
         view_menu.addItem(&transparent_tab_item);
+
+        let separator = NSMenuItem::separatorItem(mtm);
+        view_menu.addItem(&separator);
+
+        let reload_title = NSString::from_str("Reload Config");
+        let reload_key = NSString::from_str("R");
+        let reload_item = NSMenuItem::initWithTitle_action_keyEquivalent(
+            mtm.alloc(),
+            &reload_title,
+            Some(objc2::sel!(reloadConfig:)),
+            &reload_key,
+        );
+        view_menu.addItem(&reload_item);
         view_menu_item.setSubmenu(Some(&view_menu));
 
         app.setMainMenu(Some(&menubar));

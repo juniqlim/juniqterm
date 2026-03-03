@@ -228,57 +228,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
 
                     // Cmd+Shift+[ / Cmd+Shift+]: prev/next tab
                     if modifiers.contains(Modifiers::SHIFT) {
-                        // Cmd+Shift+R: reload config
-                        if keycode == kc::ANSI_R {
-                            let new_config = crate::config::Config::load();
-                            // Apply font changes
-                            if new_config.font_family != config.font_family || new_config.font_size != config.font_size {
-                                font_size = new_config.font_size;
-                                let font_path = crate::resolve_font_path(&new_config.font_family);
-                                drawer.set_font(font_path.as_deref(), font_size);
-                                let (cw, ch) = drawer.cell_size();
-                                let (w, h) = window.inner_size();
-                                let (cols, _rows) = zoom::calc_grid_size(w, h, cw, ch);
-                                let term_rows = tabs.term_rows(h, ch, drawer.tab_bar_height());
-                                for tab in tabs.tabs_mut() {
-                                    let mut state = tab.terminal.lock().unwrap();
-                                    state.grid.resize(cols, term_rows);
-                                    drop(state);
-                                    let _ = tab.pty_writer.resize(term_rows, cols);
-                                }
-                            }
-                            // Apply toggle changes
-                            if new_config.pomodoro != config.pomodoro {
-                                pomodoro.toggle();
-                                window.set_pomodoro_checked(new_config.pomodoro);
-                                window.set_coaching_menu_enabled(new_config.pomodoro);
-                            }
-                            if new_config.response_timer != config.response_timer {
-                                response_timer_enabled = new_config.response_timer;
-                                for tab in tabs.tabs_mut() {
-                                    tab.response_timer.set_enabled(response_timer_enabled);
-                                }
-                                window.set_response_timer_checked(response_timer_enabled);
-                            }
-                            if new_config.coaching != config.coaching {
-                                coaching_enabled = new_config.coaching;
-                                window.set_coaching_checked(coaching_enabled);
-                            }
-                            if new_config.transparent_tab_bar != config.transparent_tab_bar {
-                                transparent_tab_bar = new_config.transparent_tab_bar;
-                                window.set_transparent_tab_bar_checked(transparent_tab_bar);
-                                window.set_transparent_mode(transparent_tab_bar);
-                                title_bar_height = if transparent_tab_bar {
-                                    window.title_bar_height() as f32
-                                } else {
-                                    0.0
-                                };
-                            }
-                            header_opacity = new_config.header_opacity;
-                            config = new_config;
-                            render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, hover_url_range, pomodoro.is_input_blocked(), pomodoro.coaching_lines().as_deref(), scrollbar_dragging || scrollbar_visible_until.map_or(false, |t| t > Instant::now()), copy_flash, tab_dragging, transparent_tab_bar, title_bar_height, header_opacity);
-                            continue;
-                        }
+                        // Cmd+Shift+R: reload config — 메뉴(reloadConfig:)로 처리됨
                         if keycode == kc::ANSI_LEFT_BRACKET {
                             tabs.prev_tab();
                             if copy_mode.active { copy_mode.exit(&mut sel); window.set_copy_mode(false); }
@@ -1058,6 +1008,54 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                 } else {
                     0.0
                 };
+            }
+            AppEvent::ReloadConfig => {
+                let new_config = crate::config::Config::load();
+                // Apply font changes
+                if new_config.font_family != config.font_family || new_config.font_size != config.font_size {
+                    font_size = new_config.font_size;
+                    let font_path = crate::resolve_font_path(&new_config.font_family);
+                    drawer.set_font(font_path.as_deref(), font_size);
+                    let (cw, ch) = drawer.cell_size();
+                    let (w, h) = window.inner_size();
+                    let (cols, _rows) = zoom::calc_grid_size(w, h, cw, ch);
+                    let term_rows = tabs.term_rows(h, ch, drawer.tab_bar_height());
+                    for tab in tabs.tabs_mut() {
+                        let mut state = tab.terminal.lock().unwrap();
+                        state.grid.resize(cols, term_rows);
+                        drop(state);
+                        let _ = tab.pty_writer.resize(term_rows, cols);
+                    }
+                }
+                // Apply toggle changes
+                if new_config.pomodoro != config.pomodoro {
+                    pomodoro.toggle();
+                    window.set_pomodoro_checked(new_config.pomodoro);
+                    window.set_coaching_menu_enabled(new_config.pomodoro);
+                }
+                if new_config.response_timer != config.response_timer {
+                    response_timer_enabled = new_config.response_timer;
+                    for tab in tabs.tabs_mut() {
+                        tab.response_timer.set_enabled(response_timer_enabled);
+                    }
+                    window.set_response_timer_checked(response_timer_enabled);
+                }
+                if new_config.coaching != config.coaching {
+                    coaching_enabled = new_config.coaching;
+                    window.set_coaching_checked(coaching_enabled);
+                }
+                if new_config.transparent_tab_bar != config.transparent_tab_bar {
+                    transparent_tab_bar = new_config.transparent_tab_bar;
+                    window.set_transparent_tab_bar_checked(transparent_tab_bar);
+                    window.set_transparent_mode(transparent_tab_bar);
+                    title_bar_height = if transparent_tab_bar {
+                        window.title_bar_height() as f32
+                    } else {
+                        0.0
+                    };
+                }
+                header_opacity = new_config.header_opacity;
+                config = new_config;
             }
             AppEvent::CloseRequested => {
                 std::process::exit(0);
