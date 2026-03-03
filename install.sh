@@ -6,6 +6,7 @@ cargo build --release -p growterm-app
 APP="/Applications/growTerm.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp target/release/growterm "$APP/Contents/MacOS/growterm"
+codesign --force --sign - "$APP/Contents/MacOS/growterm"
 cp assets/icon.icns "$APP/Contents/Resources/AppIcon.icns"
 
 cat > "$APP/Contents/Info.plist" << 'EOF'
