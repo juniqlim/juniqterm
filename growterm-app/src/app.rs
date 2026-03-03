@@ -14,9 +14,9 @@ use crate::tab::{Tab, TabManager};
 use crate::url;
 use crate::zoom;
 
-pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: GpuDrawer) {
+pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: GpuDrawer, mut config: crate::config::Config) {
     let (cell_w, cell_h) = drawer.cell_size();
-    let mut font_size = crate::FONT_SIZE;
+    let mut font_size = config.font_size;
     let (width, height) = window.inner_size();
 
     let (cols, rows) = zoom::calc_grid_size(width, height, cell_w, cell_h);
@@ -56,7 +56,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
     let mut test_input_sent = false;
     let mut test_drop_sent = false;
     let mut ink_state = InkImeState::new();
-    let mut response_timer_enabled = load_response_timer_enabled();
+    let mut response_timer_enabled = config.response_timer;
     if response_timer_enabled {
         if let Some(tab) = tabs.active_tab_mut() {
             tab.response_timer.set_enabled(true);
@@ -65,15 +65,14 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
     }
     let mut copy_mode = CopyMode::new();
     let mut pomodoro = Pomodoro::new();
-    let pomodoro_initially_enabled = load_pomodoro_enabled();
-    if pomodoro_initially_enabled {
+    if config.pomodoro {
         pomodoro.toggle();
         window.set_pomodoro_checked(true);
     }
-    let mut coaching_enabled = load_coaching_enabled();
+    let mut coaching_enabled = config.coaching;
     window.set_coaching_checked(coaching_enabled);
-    window.set_coaching_menu_enabled(pomodoro_initially_enabled);
-    let mut transparent_tab_bar = load_transparent_tab_bar();
+    window.set_coaching_menu_enabled(config.pomodoro);
+    let mut transparent_tab_bar = config.transparent_tab_bar;
     window.set_transparent_tab_bar_checked(transparent_tab_bar);
     window.set_transparent_mode(transparent_tab_bar);
     let title_bar_height = if transparent_tab_bar {
@@ -225,6 +224,56 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
 
                     // Cmd+Shift+[ / Cmd+Shift+]: prev/next tab
                     if modifiers.contains(Modifiers::SHIFT) {
+                        // Cmd+Shift+R: reload config
+                        if keycode == kc::ANSI_R {
+                            let new_config = crate::config::Config::load();
+                            // Apply font changes
+                            if new_config.font_family != config.font_family || new_config.font_size != config.font_size {
+                                font_size = new_config.font_size;
+                                let font_path = crate::resolve_font_path(&new_config.font_family);
+                                drawer.set_font(font_path.as_deref(), font_size);
+                                let (cw, ch) = drawer.cell_size();
+                                let (w, h) = window.inner_size();
+                                let (cols, _rows) = zoom::calc_grid_size(w, h, cw, ch);
+                                let term_rows = tabs.term_rows(h, ch, drawer.tab_bar_height());
+                                for tab in tabs.tabs_mut() {
+                                    let mut state = tab.terminal.lock().unwrap();
+                                    state.grid.resize(cols, term_rows);
+                                    drop(state);
+                                    let _ = tab.pty_writer.resize(term_rows, cols);
+                                }
+                            }
+                            // Apply toggle changes
+                            if new_config.pomodoro != config.pomodoro {
+                                pomodoro.toggle();
+                                window.set_pomodoro_checked(new_config.pomodoro);
+                                window.set_coaching_menu_enabled(new_config.pomodoro);
+                            }
+                            if new_config.response_timer != config.response_timer {
+                                response_timer_enabled = new_config.response_timer;
+                                for tab in tabs.tabs_mut() {
+                                    tab.response_timer.set_enabled(response_timer_enabled);
+                                }
+                                window.set_response_timer_checked(response_timer_enabled);
+                            }
+                            if new_config.coaching != config.coaching {
+                                coaching_enabled = new_config.coaching;
+                                window.set_coaching_checked(coaching_enabled);
+                            }
+                            if new_config.transparent_tab_bar != config.transparent_tab_bar {
+                                transparent_tab_bar = new_config.transparent_tab_bar;
+                                window.set_transparent_tab_bar_checked(transparent_tab_bar);
+                                window.set_transparent_mode(transparent_tab_bar);
+                                title_bar_height = if transparent_tab_bar {
+                                    window.title_bar_height() as f32
+                                } else {
+                                    0.0
+                                };
+                            }
+                            config = new_config;
+                            render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, hover_url_range, pomodoro.is_input_blocked(), pomodoro.coaching_lines().as_deref(), scrollbar_dragging || scrollbar_visible_until.map_or(false, |t| t > Instant::now()), copy_flash, tab_dragging, transparent_tab_bar, title_bar_height);
+                            continue;
+                        }
                         if keycode == kc::ANSI_LEFT_BRACKET {
                             tabs.prev_tab();
                             if copy_mode.active { copy_mode.exit(&mut sel); window.set_copy_mode(false); }
@@ -964,14 +1013,15 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
             AppEvent::TogglePomodoro => {
                 pomodoro.toggle();
                 let enabled = pomodoro.is_enabled();
-                save_pomodoro_enabled(enabled);
+                config.pomodoro = enabled;
                 window.set_pomodoro_checked(enabled);
                 window.set_coaching_menu_enabled(enabled);
                 if !enabled {
                     coaching_enabled = false;
-                    save_coaching_enabled(false);
+                    config.coaching = false;
                     window.set_coaching_checked(false);
                 }
+                config.save();
                 let title = build_title(&pomodoro, &tabs);
                 window.set_title(&title);
             }
@@ -980,19 +1030,22 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                 for tab in tabs.tabs_mut() {
                     tab.response_timer.set_enabled(response_timer_enabled);
                 }
-                save_response_timer_enabled(response_timer_enabled);
+                config.response_timer = response_timer_enabled;
+                config.save();
                 window.set_response_timer_checked(response_timer_enabled);
                 let title = build_title(&pomodoro, &tabs);
                 window.set_title(&title);
             }
             AppEvent::ToggleCoaching => {
                 coaching_enabled = !coaching_enabled;
-                save_coaching_enabled(coaching_enabled);
+                config.coaching = coaching_enabled;
+                config.save();
                 window.set_coaching_checked(coaching_enabled);
             }
             AppEvent::ToggleTransparentTabBar => {
                 transparent_tab_bar = !transparent_tab_bar;
-                save_transparent_tab_bar(transparent_tab_bar);
+                config.transparent_tab_bar = transparent_tab_bar;
+                config.save();
                 window.set_transparent_tab_bar_checked(transparent_tab_bar);
                 window.set_transparent_mode(transparent_tab_bar);
                 title_bar_height = if transparent_tab_bar {
@@ -1109,93 +1162,6 @@ fn build_title(pomodoro: &Pomodoro, tabs: &TabManager) -> String {
     }
 }
 
-fn pomodoro_config_path() -> std::path::PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    std::path::PathBuf::from(home)
-        .join(".config")
-        .join("growterm")
-        .join("pomodoro_enabled")
-}
-
-fn load_pomodoro_enabled() -> bool {
-    std::fs::read_to_string(pomodoro_config_path())
-        .map(|s| s.trim() == "1")
-        .unwrap_or(false)
-}
-
-fn save_pomodoro_enabled(enabled: bool) {
-    let path = pomodoro_config_path();
-    if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    let _ = std::fs::write(path, if enabled { "1" } else { "0" });
-}
-
-fn response_timer_config_path() -> std::path::PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    std::path::PathBuf::from(home)
-        .join(".config")
-        .join("growterm")
-        .join("response_timer_enabled")
-}
-
-fn load_response_timer_enabled() -> bool {
-    std::fs::read_to_string(response_timer_config_path())
-        .map(|s| s.trim() == "1")
-        .unwrap_or(false)
-}
-
-fn save_response_timer_enabled(enabled: bool) {
-    let path = response_timer_config_path();
-    if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    let _ = std::fs::write(path, if enabled { "1" } else { "0" });
-}
-
-fn coaching_config_path() -> std::path::PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    std::path::PathBuf::from(home)
-        .join(".config")
-        .join("growterm")
-        .join("coaching_enabled")
-}
-
-fn load_coaching_enabled() -> bool {
-    std::fs::read_to_string(coaching_config_path())
-        .map(|s| s.trim() != "0")
-        .unwrap_or(true)
-}
-
-fn save_coaching_enabled(enabled: bool) {
-    let path = coaching_config_path();
-    if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    let _ = std::fs::write(path, if enabled { "1" } else { "0" });
-}
-
-fn transparent_tab_bar_config_path() -> std::path::PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    std::path::PathBuf::from(home)
-        .join(".config")
-        .join("growterm")
-        .join("transparent_tab_bar")
-}
-
-fn load_transparent_tab_bar() -> bool {
-    std::fs::read_to_string(transparent_tab_bar_config_path())
-        .map(|s| s.trim() == "1")
-        .unwrap_or(false)
-}
-
-fn save_transparent_tab_bar(enabled: bool) {
-    let path = transparent_tab_bar_config_path();
-    if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    let _ = std::fs::write(path, if enabled { "1" } else { "0" });
-}
 
 fn shell_escape(path: &str) -> String {
     if path.contains(|c: char| c.is_whitespace() || "\"'\\$`!#&|;(){}[]<>?*~".contains(c)) {

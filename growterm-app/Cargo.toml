@@ -19,3 +19,5 @@ growterm-macos = { path = "../growterm-macos" }
 libc = "0.2"
 arboard = "3"
 unicode-width = "0.2.2"
+toml = "0.8"
+serde = { version = "1", features = ["derive"] }

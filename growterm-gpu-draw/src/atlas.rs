@@ -26,14 +26,22 @@ pub struct GlyphAtlas {
 }
 
 impl GlyphAtlas {
-    pub fn new(size: f32) -> Self {
-        let font_data = include_bytes!("../fonts/FiraCodeNerdFontMono-Retina.ttf");
-        let settings = fontdue::FontSettings {
-            scale: size,
-            ..Default::default()
+    pub fn new(size: f32, font_path: Option<&str>) -> Self {
+        let font = if let Some(path) = font_path {
+            if let Ok(data) = std::fs::read(path) {
+                let settings = fontdue::FontSettings {
+                    scale: size,
+                    ..Default::default()
+                };
+                fontdue::Font::from_bytes(data, settings).unwrap_or_else(|_| {
+                    Self::load_builtin_font(size)
+                })
+            } else {
+                Self::load_builtin_font(size)
+            }
+        } else {
+            Self::load_builtin_font(size)
         };
-        let font = fontdue::Font::from_bytes(font_data as &[u8], settings)
-            .expect("failed to load Fira Code Nerd Font");
 
         let fallback_data = include_bytes!("../fonts/D2Coding.ttc");
         let fallback_settings = fontdue::FontSettings {
@@ -61,6 +69,44 @@ impl GlyphAtlas {
             cell_height: cell_height.ceil(),
             ascent,
         }
+    }
+
+    fn load_builtin_font(size: f32) -> fontdue::Font {
+        let font_data = include_bytes!("../fonts/FiraCodeNerdFontMono-Retina.ttf");
+        let settings = fontdue::FontSettings {
+            scale: size,
+            ..Default::default()
+        };
+        fontdue::Font::from_bytes(font_data as &[u8], settings)
+            .expect("failed to load Fira Code Nerd Font")
+    }
+
+    pub fn set_font(&mut self, font_path: Option<&str>, size: f32) {
+        self.font = if let Some(path) = font_path {
+            if let Ok(data) = std::fs::read(path) {
+                let settings = fontdue::FontSettings {
+                    scale: size,
+                    ..Default::default()
+                };
+                fontdue::Font::from_bytes(data, settings).unwrap_or_else(|_| {
+                    Self::load_builtin_font(size)
+                })
+            } else {
+                Self::load_builtin_font(size)
+            }
+        } else {
+            Self::load_builtin_font(size)
+        };
+        self.size = size;
+        self.cache.clear();
+        self.system_font_cache.clear();
+        let metrics = self.font.metrics('M', size);
+        let line_metrics = self.font.horizontal_line_metrics(size);
+        match line_metrics {
+            Some(lm) => { self.cell_height = lm.new_line_size.ceil(); self.ascent = lm.ascent; }
+            None => { self.cell_height = (metrics.height as f32).ceil(); self.ascent = metrics.height as f32 * 0.8; }
+        }
+        self.cell_width = metrics.advance_width.ceil();
     }
 
     pub fn set_size(&mut self, size: f32) {

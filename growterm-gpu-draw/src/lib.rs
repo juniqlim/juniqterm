@@ -11,7 +11,7 @@ mod tests {
     // --- GlyphAtlas: 래스터화 ---
     #[test]
     fn rasterize_ascii_produces_bitmap() {
-        let mut atlas = GlyphAtlas::new(24.0);
+        let mut atlas = GlyphAtlas::new(24.0, None);
         let glyph = atlas.get_or_insert('A');
         assert!(glyph.width > 0);
         assert!(glyph.height > 0);
@@ -20,7 +20,7 @@ mod tests {
 
     #[test]
     fn rasterize_space_has_zero_size() {
-        let mut atlas = GlyphAtlas::new(24.0);
+        let mut atlas = GlyphAtlas::new(24.0, None);
         let glyph = atlas.get_or_insert(' ');
         // space has no visible pixels
         assert_eq!(glyph.width, 0);
@@ -29,7 +29,7 @@ mod tests {
 
     #[test]
     fn rasterize_cjk_produces_bitmap() {
-        let mut atlas = GlyphAtlas::new(24.0);
+        let mut atlas = GlyphAtlas::new(24.0, None);
         let glyph = atlas.get_or_insert('가');
         assert!(glyph.width > 0);
         assert!(glyph.height > 0);
@@ -37,7 +37,7 @@ mod tests {
 
     #[test]
     fn rasterize_nerd_font_symbol() {
-        let mut atlas = GlyphAtlas::new(24.0);
+        let mut atlas = GlyphAtlas::new(24.0, None);
         let glyph = atlas.get_or_insert('☒'); // U+2612
         assert!(glyph.width > 0);
         assert!(glyph.height > 0);
@@ -46,7 +46,7 @@ mod tests {
     // --- GlyphAtlas: 캐싱 ---
     #[test]
     fn second_lookup_returns_cached() {
-        let mut atlas = GlyphAtlas::new(24.0);
+        let mut atlas = GlyphAtlas::new(24.0, None);
         let first = atlas.get_or_insert('B');
         let first_bitmap = first.bitmap.clone();
         let second = atlas.get_or_insert('B');
@@ -55,7 +55,7 @@ mod tests {
 
     #[test]
     fn different_chars_have_different_bitmaps() {
-        let mut atlas = GlyphAtlas::new(24.0);
+        let mut atlas = GlyphAtlas::new(24.0, None);
         let a = atlas.get_or_insert('A');
         let a_bitmap = a.bitmap.clone();
         let b = atlas.get_or_insert('B');
@@ -65,7 +65,7 @@ mod tests {
     // --- GlyphAtlas: cell metrics ---
     #[test]
     fn cell_size_is_positive() {
-        let atlas = GlyphAtlas::new(24.0);
+        let atlas = GlyphAtlas::new(24.0, None);
         let (w, h) = atlas.cell_size();
         assert!(w > 0.0);
         assert!(h > 0.0);

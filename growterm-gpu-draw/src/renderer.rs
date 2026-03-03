@@ -73,7 +73,7 @@ pub struct TabBarInfo {
 }
 
 impl GpuDrawer {
-    pub fn new<W>(window: std::sync::Arc<W>, width: u32, height: u32, font_size: f32) -> Self
+    pub fn new<W>(window: std::sync::Arc<W>, width: u32, height: u32, font_size: f32, font_path: Option<&str>) -> Self
     where
         W: raw_window_handle::HasWindowHandle
             + raw_window_handle::HasDisplayHandle
@@ -363,8 +363,8 @@ impl GpuDrawer {
             cache: None,
         });
 
-        let atlas = GlyphAtlas::new(font_size);
-        let tab_atlas = GlyphAtlas::new(TAB_FONT_SIZE);
+        let atlas = GlyphAtlas::new(font_size, font_path);
+        let tab_atlas = GlyphAtlas::new(TAB_FONT_SIZE, None);
 
         Self {
             device,
@@ -393,6 +393,15 @@ impl GpuDrawer {
 
     pub fn set_font_size(&mut self, size: f32) {
         self.atlas.set_size(size);
+        self.glyph_regions.clear();
+        self.tab_glyph_regions.clear();
+        self.atlas_cursor_x = 0;
+        self.atlas_cursor_y = 0;
+        self.atlas_row_height = 0;
+    }
+
+    pub fn set_font(&mut self, font_path: Option<&str>, size: f32) {
+        self.atlas.set_font(font_path, size);
         self.glyph_regions.clear();
         self.tab_glyph_regions.clear();
         self.atlas_cursor_x = 0;

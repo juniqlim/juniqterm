@@ -89,7 +89,7 @@ impl ApplicationHandler for App {
             .with_inner_size(winit::dpi::LogicalSize::new(800, 400));
         let window = Arc::new(event_loop.create_window(attrs).unwrap());
         let size = window.inner_size();
-        let drawer = GpuDrawer::new(window.clone(), size.width, size.height, 24.0);
+        let drawer = GpuDrawer::new(window.clone(), size.width, size.height, 24.0, None);
         self.window = Some(window);
         self.drawer = Some(drawer);
     }

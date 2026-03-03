@@ -42,6 +42,7 @@ pub mod keycode {
     pub const ANSI_L: u16 = 0x25;
     pub const ANSI_N: u16 = 0x2D;
     pub const ANSI_Y: u16 = 0x10;
+    pub const ANSI_R: u16 = 0x0F;
     pub const ANSI_GRAVE: u16 = 0x32; // ` (backtick / ₩)
 }
 
