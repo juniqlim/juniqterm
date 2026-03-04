@@ -2,7 +2,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+#[cfg(test)]
 const DEFAULT_WORK_SECS: u64 = 25 * 60;
+#[cfg(test)]
 const DEFAULT_BREAK_SECS: u64 = 3 * 60;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
