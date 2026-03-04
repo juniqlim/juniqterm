@@ -1,4 +1,5 @@
 mod delegate;
+mod dispatch;
 pub mod event;
 pub mod key_convert;
 #[doc(hidden)]

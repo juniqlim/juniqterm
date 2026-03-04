@@ -216,9 +216,18 @@ pub fn spawn_ai_coaching(
         }
         let result = child.wait_with_output();
         let lines = match result {
-            Ok(output) => {
+            Ok(output) if output.status.success() && !output.stdout.is_empty() => {
                 let text = String::from_utf8_lossy(&output.stdout);
                 text.lines().map(|l| l.to_string()).collect()
+            }
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let msg = if stderr.trim().is_empty() {
+                    format!("AI 호출 실패: exit code {}", output.status)
+                } else {
+                    format!("AI 호출 실패: {}", stderr.trim())
+                };
+                vec![msg]
             }
             Err(e) => {
                 vec![format!("AI 호출 실패: {e}")]

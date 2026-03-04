@@ -2,17 +2,8 @@ use std::process::Command;
 use std::time::Duration;
 
 use growterm_integration_tests::{
-    build_binary, cleanup, parse_dump_rows, spawn_with_dump_and_input, wait_for_dump,
+    build_binary, cleanup, has_claude_cli, parse_dump_rows, spawn_with_dump_and_input, wait_for_dump,
 };
-
-fn has_claude_cli() -> bool {
-    Command::new("sh")
-        .arg("-lc")
-        .arg("command -v claude >/dev/null 2>&1")
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-}
 
 #[test]
 fn launches_claude_code_in_shell() {

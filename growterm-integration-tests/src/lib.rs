@@ -183,3 +183,41 @@ pub fn spawn_app(bin: &str) -> std::process::Child {
         .spawn()
         .expect("failed to launch growterm")
 }
+
+/// Check if the `claude` CLI is installed and available in PATH.
+pub fn has_claude_cli() -> bool {
+    Command::new("sh")
+        .arg("-lc")
+        .arg("command -v claude >/dev/null 2>&1")
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// Check if a Korean input source is currently selected on macOS.
+pub fn korean_input_source_selected() -> bool {
+    let output = match Command::new("defaults")
+        .arg("read")
+        .arg("com.apple.HIToolbox")
+        .arg("AppleSelectedInputSources")
+        .output()
+    {
+        Ok(output) => output,
+        Err(_) => return false,
+    };
+    if !output.status.success() {
+        return false;
+    }
+    String::from_utf8_lossy(&output.stdout).contains("com.apple.inputmethod.Korean")
+}
+
+/// Activate a process by PID using AppleScript (bring to front).
+pub fn activate_by_pid(pid: u32) {
+    let script = format!(
+        r#"tell application "System Events"
+            set frontmost of (first process whose unix id is {pid}) to true
+        end tell"#
+    );
+    let _ = Command::new("osascript").arg("-e").arg(&script).output();
+    std::thread::sleep(Duration::from_millis(500));
+}

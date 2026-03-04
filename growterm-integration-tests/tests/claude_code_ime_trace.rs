@@ -1,42 +1,10 @@
 use std::process::Command;
 use std::time::Duration;
 
-use growterm_integration_tests::{build_binary, cleanup, parse_dump, spawn_with_dump_and_input, wait_for_dump};
-
-fn has_claude_cli() -> bool {
-    Command::new("sh")
-        .arg("-lc")
-        .arg("command -v claude >/dev/null 2>&1")
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-}
-
-fn korean_input_source_selected() -> bool {
-    let output = match Command::new("defaults")
-        .arg("read")
-        .arg("com.apple.HIToolbox")
-        .arg("AppleSelectedInputSources")
-        .output()
-    {
-        Ok(output) => output,
-        Err(_) => return false,
-    };
-    if !output.status.success() {
-        return false;
-    }
-    String::from_utf8_lossy(&output.stdout).contains("com.apple.inputmethod.Korean")
-}
-
-fn activate_by_pid(pid: u32) {
-    let script = format!(
-        r#"tell application "System Events"
-            set frontmost of (first process whose unix id is {pid}) to true
-        end tell"#
-    );
-    let _ = Command::new("osascript").arg("-e").arg(&script).output();
-    std::thread::sleep(Duration::from_millis(500));
-}
+use growterm_integration_tests::{
+    activate_by_pid, build_binary, cleanup, has_claude_cli, korean_input_source_selected,
+    parse_dump, spawn_with_dump_and_input, wait_for_dump,
+};
 
 fn debug_mode() -> bool {
     std::env::var("GROWTERM_IME_TRACE_DEBUG").ok().as_deref() == Some("1")

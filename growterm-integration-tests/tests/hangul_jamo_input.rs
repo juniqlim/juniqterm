@@ -2,34 +2,9 @@ use std::process::Command;
 use std::time::Duration;
 
 use growterm_integration_tests::{
-    build_binary, cleanup, parse_dump_rows, spawn_with_dump, wait_for_dump,
+    activate_by_pid, build_binary, cleanup, korean_input_source_selected, parse_dump_rows,
+    spawn_with_dump, wait_for_dump,
 };
-
-fn activate_by_pid(pid: u32) {
-    let script = format!(
-        r#"tell application "System Events"
-            set frontmost of (first process whose unix id is {pid}) to true
-        end tell"#
-    );
-    let _ = Command::new("osascript").arg("-e").arg(&script).output();
-    std::thread::sleep(Duration::from_millis(500));
-}
-
-fn korean_input_source_selected() -> bool {
-    let output = match Command::new("defaults")
-        .arg("read")
-        .arg("com.apple.HIToolbox")
-        .arg("AppleSelectedInputSources")
-        .output()
-    {
-        Ok(output) => output,
-        Err(_) => return false,
-    };
-    if !output.status.success() {
-        return false;
-    }
-    String::from_utf8_lossy(&output.stdout).contains("com.apple.inputmethod.Korean")
-}
 
 /// 앱 실행 → osascript로 한글 자모(ㅎㅏㄴㄱㅡㄹ) 전송 → 엔터 →
 /// 그리드에 조합된 "한글"이 나타나는지 검증.

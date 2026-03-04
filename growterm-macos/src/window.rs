@@ -7,27 +7,7 @@ use objc2::MainThreadMarker;
 use objc2_app_kit::{NSBackingStoreType, NSColor, NSWindow, NSWindowStyleMask};
 use objc2_foundation::{NSPoint, NSRect, NSSize, NSString};
 
-extern "C" {
-    static _dispatch_main_q: c_void;
-    fn dispatch_async_f(queue: *const c_void, context: *mut c_void, work: extern "C" fn(*mut c_void));
-}
-
-extern "C" fn dispatch_trampoline(ctx: *mut c_void) {
-    let closure: Box<Box<dyn FnOnce()>> = unsafe { Box::from_raw(ctx as *mut _) };
-    closure();
-}
-
-fn dispatch_async_main<F: FnOnce() + 'static>(f: F) {
-    let boxed: Box<Box<dyn FnOnce()>> = Box::new(Box::new(f));
-    let ptr = Box::into_raw(boxed) as *mut c_void;
-    unsafe {
-        dispatch_async_f(
-            &_dispatch_main_q as *const _ as *const c_void,
-            ptr,
-            dispatch_trampoline,
-        );
-    }
-}
+use crate::dispatch::dispatch_async_main;
 
 extern "C" fn set_needs_display_on_main(ctx: *mut c_void) {
     unsafe {
@@ -102,7 +82,7 @@ impl MacWindow {
     pub fn request_redraw(&self) {
         let ptr = Retained::as_ptr(&self.view) as *mut c_void;
         unsafe {
-            dispatch_async_f(&_dispatch_main_q as *const _ as *const c_void, ptr, set_needs_display_on_main);
+            crate::dispatch::dispatch_raw_main(ptr, set_needs_display_on_main);
         }
     }
 

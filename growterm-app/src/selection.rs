@@ -101,6 +101,41 @@ pub fn mouse_pixel_to_cell(
     pixel_to_cell(x, y - content_y_offset, cell_w, cell_h)
 }
 
+/// Extract text from a slice of cells, skipping wide-char spacer cells.
+fn collect_cells_text(line: &[Cell], col_start: usize, col_end: usize) -> String {
+    let mut text = String::new();
+    let mut col = col_start;
+    while col < col_end {
+        text.push(line[col].character);
+        if line[col].flags.contains(CellFlags::WIDE_CHAR) {
+            col += 2;
+        } else {
+            col += 1;
+        }
+    }
+    text
+}
+
+/// Extract full line text, replacing null chars with spaces and skipping wide-char spacers.
+fn collect_line_text(line: &[Cell]) -> String {
+    let mut text = String::new();
+    let mut col = 0;
+    while col < line.len() {
+        let cell = &line[col];
+        if cell.flags.contains(CellFlags::WIDE_CHAR) {
+            text.push(cell.character);
+            col += 2;
+        } else if cell.character == '\0' {
+            text.push(' ');
+            col += 1;
+        } else {
+            text.push(cell.character);
+            col += 1;
+        }
+    }
+    text
+}
+
 pub fn extract_text(cells: &[Vec<Cell>], selection: &Selection) -> String {
     if selection.is_empty() {
         return String::new();
@@ -121,18 +156,8 @@ pub fn extract_text(cells: &[Vec<Cell>], selection: &Selection) -> String {
             line.len()
         };
 
-        let mut line_text = String::new();
-        let mut col = col_start;
-        while col < col_end {
-            line_text.push(line[col].character);
-            if line[col].flags.contains(CellFlags::WIDE_CHAR) {
-                col += 2;
-            } else {
-                col += 1;
-            }
-        }
-        let trimmed = line_text.trim_end();
-        result.push_str(trimmed);
+        let line_text = collect_cells_text(line, col_start, col_end);
+        result.push_str(line_text.trim_end());
 
         if row < er {
             result.push('\n');
@@ -204,23 +229,7 @@ pub fn cursor_line_text(grid: &growterm_grid::Grid) -> String {
     if row >= cells.len() {
         return String::new();
     }
-    let line = &cells[row];
-    let mut text = String::new();
-    let mut col = 0;
-    while col < line.len() {
-        let cell = &line[col];
-        if cell.flags.contains(CellFlags::WIDE_CHAR) {
-            text.push(cell.character);
-            col += 2;
-        } else if cell.character == '\0' {
-            text.push(' ');
-            col += 1;
-        } else {
-            text.push(cell.character);
-            col += 1;
-        }
-    }
-    text.trim_end().to_string()
+    collect_line_text(&cells[row]).trim_end().to_string()
 }
 
 /// Extract text using absolute row coordinates from scrollback + screen cells.
@@ -251,18 +260,8 @@ pub fn extract_text_absolute(grid: &growterm_grid::Grid, selection: &Selection) 
             line.len()
         };
 
-        let mut line_text = String::new();
-        let mut col = col_start;
-        while col < col_end {
-            line_text.push(line[col].character);
-            if line[col].flags.contains(CellFlags::WIDE_CHAR) {
-                col += 2;
-            } else {
-                col += 1;
-            }
-        }
-        let trimmed = line_text.trim_end();
-        result.push_str(trimmed);
+        let line_text = collect_cells_text(line, col_start, col_end);
+        result.push_str(line_text.trim_end());
 
         if row < er {
             result.push('\n');
@@ -287,17 +286,7 @@ pub fn row_text_absolute(grid: &growterm_grid::Grid, abs_row: u32) -> String {
         &screen[screen_row]
     };
 
-    let mut text = String::new();
-    for cell in line {
-        if cell.flags.contains(CellFlags::WIDE_CHAR) {
-            text.push(cell.character);
-        } else if cell.character == '\0' {
-            text.push(' ');
-        } else {
-            text.push(cell.character);
-        }
-    }
-    text
+    collect_line_text(line)
 }
 
 #[cfg(test)]
