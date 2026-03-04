@@ -23,8 +23,9 @@
 - **복사 모드** — Vim 스타일 복사 모드 (Cmd+Shift+C), hjkl 내비게이션
 - **마우스 선택 & 클립보드** — 와이드 문자 인식 드래그 선택, Cmd+C/V, Cmd+A로 입력 줄 복사
 - **URL 하이라이트** — Cmd+호버로 URL 밑줄 표시 및 감지
-- **뽀모도로 타이머** — 25분 작업 / 3분 휴식 사이클, 입력 차단
+- **뽀모도로 타이머** — 설정 가능한 작업/휴식 사이클, 입력 차단 (기본 25분/3분)
 - **응답 타이머** — 탭별 명령 응답 시간 측정
+- **코칭** — AI 코칭 레이어, 자동 줄바꿈 (Claude CLI 사용)
 - **폰트 줌** — Cmd+=/- 로 크기 조절 (8pt–72pt)
 - **박스 드로잉** — 가는 선, 굵은 선, 이중 선, 둥근 모서리 문자의 기하학적 렌더링
 - **키보드** — xterm 스타일 인코딩, Shift/Ctrl/Alt 조합키, kitty 키보드 프로토콜
@@ -56,10 +57,37 @@
 | v | 비주얼 모드 토글 (여러 줄 범위 선택) |
 | Cmd+C | 선택 영역 복사 후 복사 모드 종료 |
 
-## 최근 변경사항
+## 설정
 
-- **Claude Code 커서 위치 수정** — Claude Code 실행 시 커서 위치가 어긋나는 문제 수정
-- **조합 중 엔터** — 한글 등 조합 언어 입력 중 엔터를 누르면 글자 완성과 동시에 엔터 전송
+설정 파일은 `~/.config/growterm/config.toml`에 저장된다. 모든 항목은 선택적이며, 생략하면 기본값이 사용된다.
+
+```toml
+font_family = "FiraCodeNerdFontMono-Retina"  # 폰트 이름
+font_size = 32.0                              # 폰트 크기 (pt)
+pomodoro = false                              # 뽀모도로 타이머 활성화
+pomodoro_work_minutes = 25                    # 작업 시간 (분)
+pomodoro_break_minutes = 3                    # 휴식 시간 (분)
+response_timer = false                        # 응답 타이머 활성화
+coaching = true                               # AI 코칭 활성화
+coaching_command = "claude -p ..."            # 커스텀 코칭 명령어
+transparent_tab_bar = false                   # 탭/타이틀바 투명화
+header_opacity = 0.8                          # 탭바 불투명도 (0.0–1.0)
+window_width = 800                            # 초기 윈도우 너비
+window_height = 600                           # 초기 윈도우 높이
+window_x = 100                                # 윈도우 x 위치
+window_y = 50                                 # 윈도우 y 위치
+
+[copy_mode_keys]
+down = "j"                                    # 단일 키 또는 배열
+up = "k"
+visual = "v"
+half_page_down = ["h", "d"]
+half_page_up = ["l", "u"]
+yank = "y"
+exit = ["q", "Escape", "`"]
+```
+
+기존 개별 설정 파일(`pomodoro_enabled` 등)은 첫 로드 시 `config.toml`로 자동 마이그레이션된다.
 
 ## 아키텍처
 
@@ -135,9 +163,13 @@ cargo run -p growterm-app
 cargo test
 ```
 
-594개 이상 테스트 (단위 + 통합).
+717개 이상 테스트 (단위 + 통합).
 
 ## 요구사항
 
 - Rust (stable)
 - macOS (wgpu Metal 백엔드)
+
+## 라이선스
+
+MIT

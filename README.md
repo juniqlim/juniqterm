@@ -23,8 +23,9 @@ A terminal app that grows — GPU-accelerated terminal emulator written in Rust 
 - **Copy Mode** — Vim-style copy mode (Cmd+Shift+C) with hjkl navigation
 - **Mouse Selection & Clipboard** — Drag selection with wide character awareness, Cmd+C/V, Cmd+A to copy input line
 - **URL Highlight** — Cmd+hover to underline and detect URLs
-- **Pomodoro Timer** — 25min work / 3min break cycle with input blocking
+- **Pomodoro Timer** — Configurable work/break cycle with input blocking (default 25min/3min)
 - **Response Timer** — Per-tab command response time measurement
+- **Coaching** — AI coaching layer with word wrapping (uses Claude CLI)
 - **Font Zoom** — Cmd+=/- to adjust size (8pt–72pt)
 - **Box Drawing** — Light, heavy, double, and rounded corner characters with geometric rendering
 - **Keyboard** — xterm-style encoding, Shift/Ctrl/Alt modifier combinations, kitty keyboard protocol
@@ -56,10 +57,37 @@ A terminal app that grows — GPU-accelerated terminal emulator written in Rust 
 | v | Toggle visual mode (multi-line selection) |
 | Cmd+C | Copy selection and exit copy mode |
 
-## Recent Changes
+## Configuration
 
-- **Claude Code cursor position fix** — Fixed cursor position issues when running Claude Code
-- **Composing language enter** — Pressing Enter during IME composition (e.g. Korean) now commits the character and sends Enter simultaneously
+Settings are stored in `~/.config/growterm/config.toml`. All fields are optional — omitted values use defaults.
+
+```toml
+font_family = "FiraCodeNerdFontMono-Retina"  # font name
+font_size = 32.0                              # font size in pt
+pomodoro = false                              # enable pomodoro timer
+pomodoro_work_minutes = 25                    # work duration
+pomodoro_break_minutes = 3                    # break duration
+response_timer = false                        # enable response timer
+coaching = true                               # enable AI coaching
+coaching_command = "claude -p ..."            # custom coaching command
+transparent_tab_bar = false                   # transparent tab/title bar
+header_opacity = 0.8                          # tab bar opacity (0.0–1.0)
+window_width = 800                            # initial window width
+window_height = 600                           # initial window height
+window_x = 100                                # window x position
+window_y = 50                                 # window y position
+
+[copy_mode_keys]
+down = "j"                                    # single key or array
+up = "k"
+visual = "v"
+half_page_down = ["h", "d"]
+half_page_up = ["l", "u"]
+yank = "y"
+exit = ["q", "Escape", "`"]
+```
+
+Legacy individual config files (`pomodoro_enabled`, etc.) are automatically migrated to `config.toml` on first load.
 
 ## Architecture
 
@@ -135,9 +163,13 @@ Builds the release binary and installs `growTerm.app` to `/Applications`.
 cargo test
 ```
 
-594+ tests (unit + integration).
+717+ tests (unit + integration).
 
 ## Requirements
 
 - Rust (stable)
 - macOS (wgpu Metal backend)
+
+## License
+
+MIT
