@@ -89,6 +89,27 @@ exit = ["q", "Escape", "`"]
 
 Legacy individual config files (`pomodoro_enabled`, etc.) are automatically migrated to `config.toml` on first load.
 
+### Coaching
+
+When a pomodoro break starts, growTerm captures all terminal output from the work session and sends it to an AI for coaching feedback. The response is displayed as an overlay during the break.
+
+**Default behavior** — Uses Claude CLI (`claude -p`) with this system prompt:
+
+> You are a coach. Don't judge or teach. Briefly describe what you observed, and ask a question about something the user might have missed. Answer in Korean, 3–4 sentences max.
+
+**Using a different model** — Set `coaching_command` to any shell command. The terminal output is piped to stdin.
+
+```toml
+# Example: use GPT-4o instead
+coaching_command = "openai api chat.completions.create -m gpt-4o"
+
+# Example: use a local Ollama model
+coaching_command = "ollama run llama3"
+
+# Example: use Claude with a custom prompt
+coaching_command = "claude --system-prompt 'You are a concise code reviewer.' -p"
+```
+
 ## Architecture
 
 ```

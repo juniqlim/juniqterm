@@ -89,6 +89,27 @@ exit = ["q", "Escape", "`"]
 
 기존 개별 설정 파일(`pomodoro_enabled` 등)은 첫 로드 시 `config.toml`로 자동 마이그레이션된다.
 
+### 코칭
+
+뽀모도로 휴식이 시작되면, growTerm이 작업 세션 동안의 터미널 출력을 캡처해서 AI에게 코칭 피드백을 요청한다. 응답은 휴식 중 오버레이로 표시된다.
+
+**기본 동작** — Claude CLI(`claude -p`)를 사용하며, 기본 시스템 프롬프트:
+
+> 당신은 코치입니다. 판단하거나 가르치지 마세요. 관찰한 내용을 짧게 알려주고, 사용자가 미처 보지 못했을 부분을 질문으로 던져주세요. 한국어로 3-4문장 이내로 답하세요.
+
+**다른 모델 사용** — `coaching_command`에 원하는 셸 명령을 설정한다. 터미널 출력이 stdin으로 전달된다.
+
+```toml
+# 예: GPT-4o 사용
+coaching_command = "openai api chat.completions.create -m gpt-4o"
+
+# 예: 로컬 Ollama 모델 사용
+coaching_command = "ollama run llama3"
+
+# 예: Claude에 커스텀 프롬프트 사용
+coaching_command = "claude --system-prompt 'You are a concise code reviewer.' -p"
+```
+
 ## 아키텍처
 
 ```
