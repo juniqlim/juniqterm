@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-const WORK_SECS: u64 = 25 * 60;
-const BREAK_SECS: u64 = 3 * 60;
+const DEFAULT_WORK_SECS: u64 = 25 * 60;
+const DEFAULT_BREAK_SECS: u64 = 3 * 60;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Phase {
@@ -22,6 +22,8 @@ pub struct Pomodoro {
     enabled: bool,
     phase: Phase,
     started_at: Option<Instant>,
+    work_secs: u64,
+    break_secs: u64,
     /// Tab index → scrollback length at the moment Working phase started.
     scrollback_snapshot: HashMap<u64, usize>,
     /// AI coaching response lines, shared with the background thread.
@@ -29,11 +31,13 @@ pub struct Pomodoro {
 }
 
 impl Pomodoro {
-    pub fn new() -> Self {
+    pub fn new(work_secs: u64, break_secs: u64) -> Self {
         Self {
             enabled: false,
             phase: Phase::Idle,
             started_at: None,
+            work_secs,
+            break_secs,
             scrollback_snapshot: HashMap::new(),
             ai_response: Arc::new(Mutex::new(None)),
         }
@@ -100,14 +104,14 @@ impl Pomodoro {
         let elapsed = now.duration_since(started).as_secs();
         match self.phase {
             Phase::Working => {
-                if elapsed >= WORK_SECS {
+                if elapsed >= self.work_secs {
                     self.phase = Phase::Break;
                     self.started_at = Some(now);
                     return TickResult::StartedBreak;
                 }
             }
             Phase::Break => {
-                if elapsed >= BREAK_SECS {
+                if elapsed >= self.break_secs {
                     self.phase = Phase::Idle;
                     self.started_at = None;
                     self.scrollback_snapshot.clear();
@@ -163,13 +167,13 @@ impl Pomodoro {
         let elapsed = now.duration_since(started).as_secs();
         match self.phase {
             Phase::Working => {
-                let remaining = WORK_SECS.saturating_sub(elapsed);
+                let remaining = self.work_secs.saturating_sub(elapsed);
                 let m = remaining / 60;
                 let s = remaining % 60;
                 Some(format!("\u{1F345} {m:02}:{s:02}"))
             }
             Phase::Break => {
-                let remaining = BREAK_SECS.saturating_sub(elapsed);
+                let remaining = self.break_secs.saturating_sub(elapsed);
                 let m = remaining / 60;
                 let s = remaining % 60;
                 Some(format!("\u{2615} {m:02}:{s:02}"))
@@ -306,14 +310,14 @@ mod tests {
     use std::time::Duration;
 
     fn enabled_pomodoro() -> Pomodoro {
-        let mut p = Pomodoro::new();
+        let mut p = Pomodoro::new(DEFAULT_WORK_SECS, DEFAULT_BREAK_SECS);
         p.toggle();
         p
     }
 
     #[test]
     fn initial_state_is_disabled() {
-        let p = Pomodoro::new();
+        let p = Pomodoro::new(DEFAULT_WORK_SECS, DEFAULT_BREAK_SECS);
         assert!(!p.is_enabled());
         assert!(!p.is_input_blocked());
         assert!(p.display_text_at(Instant::now()).is_none());
@@ -321,7 +325,7 @@ mod tests {
 
     #[test]
     fn toggle_enables_and_disables() {
-        let mut p = Pomodoro::new();
+        let mut p = Pomodoro::new(DEFAULT_WORK_SECS, DEFAULT_BREAK_SECS);
         assert!(!p.is_enabled());
         p.toggle();
         assert!(p.is_enabled());
@@ -344,7 +348,7 @@ mod tests {
 
     #[test]
     fn on_input_ignored_when_disabled() {
-        let mut p = Pomodoro::new(); // disabled
+        let mut p = Pomodoro::new(DEFAULT_WORK_SECS, DEFAULT_BREAK_SECS); // disabled
         let now = Instant::now();
         p.on_input_at(now, &[(0, 50)]);
         assert_eq!(p.phase(), Phase::Idle);
@@ -380,11 +384,11 @@ mod tests {
         let now = Instant::now();
         p.on_input_at(now, &[(0, 50)]);
 
-        let result = p.tick_at(now + Duration::from_secs(WORK_SECS - 1));
+        let result = p.tick_at(now + Duration::from_secs(DEFAULT_WORK_SECS - 1));
         assert_eq!(result, TickResult::Noop);
         assert_eq!(p.phase(), Phase::Working);
 
-        let result = p.tick_at(now + Duration::from_secs(WORK_SECS));
+        let result = p.tick_at(now + Duration::from_secs(DEFAULT_WORK_SECS));
         assert_eq!(result, TickResult::StartedBreak);
         assert_eq!(p.phase(), Phase::Break);
         assert!(p.is_input_blocked());
@@ -396,14 +400,14 @@ mod tests {
         let now = Instant::now();
         p.on_input_at(now, &[(0, 0)]);
 
-        let break_start = now + Duration::from_secs(WORK_SECS);
+        let break_start = now + Duration::from_secs(DEFAULT_WORK_SECS);
         p.tick_at(break_start);
         assert_eq!(p.phase(), Phase::Break);
 
-        p.tick_at(break_start + Duration::from_secs(BREAK_SECS - 1));
+        p.tick_at(break_start + Duration::from_secs(DEFAULT_BREAK_SECS - 1));
         assert_eq!(p.phase(), Phase::Break);
 
-        p.tick_at(break_start + Duration::from_secs(BREAK_SECS));
+        p.tick_at(break_start + Duration::from_secs(DEFAULT_BREAK_SECS));
         assert_eq!(p.phase(), Phase::Idle);
         assert!(!p.is_input_blocked());
     }
@@ -413,7 +417,7 @@ mod tests {
         let mut p = enabled_pomodoro();
         let now = Instant::now();
         p.on_input_at(now, &[(0, 0)]);
-        p.tick_at(now + Duration::from_secs(WORK_SECS));
+        p.tick_at(now + Duration::from_secs(DEFAULT_WORK_SECS));
 
         let lines = p.coaching_lines().expect("should return lines during break");
         assert_eq!(lines[0], "[Coaching]");
@@ -425,7 +429,7 @@ mod tests {
         let mut p = enabled_pomodoro();
         let now = Instant::now();
         p.on_input_at(now, &[(0, 0)]);
-        p.tick_at(now + Duration::from_secs(WORK_SECS));
+        p.tick_at(now + Duration::from_secs(DEFAULT_WORK_SECS));
 
         p.set_ai_response(vec![
             "잘 집중했습니다.".to_string(),
@@ -466,7 +470,7 @@ mod tests {
         let now = Instant::now();
         p.on_input_at(now, &[(0, 0)]);
 
-        let break_start = now + Duration::from_secs(WORK_SECS);
+        let break_start = now + Duration::from_secs(DEFAULT_WORK_SECS);
         p.tick_at(break_start);
 
         let text = p.display_text_at(break_start + Duration::from_secs(15)).unwrap();
@@ -482,11 +486,11 @@ mod tests {
         p.on_input_at(now, &[(0, 10)]);
         assert_eq!(p.phase(), Phase::Working);
 
-        let t1 = now + Duration::from_secs(WORK_SECS);
+        let t1 = now + Duration::from_secs(DEFAULT_WORK_SECS);
         p.tick_at(t1);
         assert_eq!(p.phase(), Phase::Break);
 
-        let t2 = t1 + Duration::from_secs(BREAK_SECS);
+        let t2 = t1 + Duration::from_secs(DEFAULT_BREAK_SECS);
         p.tick_at(t2);
         assert_eq!(p.phase(), Phase::Idle);
 
@@ -537,6 +541,33 @@ mod tests {
         assert!(content2.contains("두 번째 코칭"), "second coaching should be appended");
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn custom_work_and_break_durations() {
+        let work = 10 * 60; // 10 minutes
+        let brk = 2 * 60;  // 2 minutes
+        let mut p = Pomodoro::new(work, brk);
+        p.toggle();
+        let now = Instant::now();
+        p.on_input_at(now, &[(0, 0)]);
+
+        // Still working at 9:59
+        assert_eq!(p.tick_at(now + Duration::from_secs(work - 1)), TickResult::Noop);
+        assert_eq!(p.phase(), Phase::Working);
+
+        // Transitions to break at 10:00
+        assert_eq!(p.tick_at(now + Duration::from_secs(work)), TickResult::StartedBreak);
+        assert_eq!(p.phase(), Phase::Break);
+
+        // Display shows custom break time
+        let break_start = now + Duration::from_secs(work);
+        let text = p.display_text_at(break_start).unwrap();
+        assert!(text.contains("02:00"));
+
+        // Break ends at 2:00
+        p.tick_at(break_start + Duration::from_secs(brk));
+        assert_eq!(p.phase(), Phase::Idle);
     }
 
     #[test]

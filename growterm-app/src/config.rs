@@ -102,6 +102,10 @@ pub struct Config {
     pub font_size: f32,
     #[serde(default)]
     pub pomodoro: bool,
+    #[serde(default = "default_pomodoro_work_minutes")]
+    pub pomodoro_work_minutes: u64,
+    #[serde(default = "default_pomodoro_break_minutes")]
+    pub pomodoro_break_minutes: u64,
     #[serde(default)]
     pub response_timer: bool,
     #[serde(default = "default_true")]
@@ -132,6 +136,14 @@ fn default_font_size() -> f32 {
     32.0
 }
 
+fn default_pomodoro_work_minutes() -> u64 {
+    25
+}
+
+fn default_pomodoro_break_minutes() -> u64 {
+    3
+}
+
 fn default_header_opacity() -> f32 {
     0.8
 }
@@ -146,6 +158,8 @@ impl Default for Config {
             font_family: default_font_family(),
             font_size: default_font_size(),
             pomodoro: false,
+            pomodoro_work_minutes: default_pomodoro_work_minutes(),
+            pomodoro_break_minutes: default_pomodoro_break_minutes(),
             response_timer: false,
             coaching: true,
             transparent_tab_bar: false,
@@ -230,6 +244,8 @@ impl Config {
             font_family: default_font_family(),
             font_size: default_font_size(),
             pomodoro: read_bool("pomodoro_enabled", false),
+            pomodoro_work_minutes: default_pomodoro_work_minutes(),
+            pomodoro_break_minutes: default_pomodoro_break_minutes(),
             response_timer: read_bool("response_timer_enabled", false),
             coaching: read_bool("coaching_enabled", true),
             transparent_tab_bar: read_bool("transparent_tab_bar", false),
@@ -263,8 +279,15 @@ impl Config {
         if let Some(y) = self.window_y {
             window_lines += &format!("window_y = {}\n", y);
         }
+        let mut pomodoro_time_lines = String::new();
+        if self.pomodoro_work_minutes != default_pomodoro_work_minutes() {
+            pomodoro_time_lines += &format!("pomodoro_work_minutes = {}\n", self.pomodoro_work_minutes);
+        }
+        if self.pomodoro_break_minutes != default_pomodoro_break_minutes() {
+            pomodoro_time_lines += &format!("pomodoro_break_minutes = {}\n", self.pomodoro_break_minutes);
+        }
         let content = format!(
-            "font_family = {:?}\nfont_size = {}\npomodoro = {}\nresponse_timer = {}\ncoaching = {}\ntransparent_tab_bar = {}\nheader_opacity = {}\n{coaching_cmd_line}{window_lines}",
+            "font_family = {:?}\nfont_size = {}\npomodoro = {}\n{pomodoro_time_lines}response_timer = {}\ncoaching = {}\ntransparent_tab_bar = {}\nheader_opacity = {}\n{coaching_cmd_line}{window_lines}",
             self.font_family, self.font_size, self.pomodoro, self.response_timer, self.coaching, self.transparent_tab_bar, self.header_opacity,
         );
         let _ = std::fs::write(config_path(), content);
@@ -439,6 +462,21 @@ window_y = 50
         let toml = "window_x = 100\n";
         let config: Config = toml::from_str(toml).unwrap();
         assert_eq!(config.window_position(), None);
+    }
+
+    #[test]
+    fn pomodoro_time_defaults() {
+        let config: Config = toml::from_str("").unwrap();
+        assert_eq!(config.pomodoro_work_minutes, 25);
+        assert_eq!(config.pomodoro_break_minutes, 3);
+    }
+
+    #[test]
+    fn pomodoro_time_custom() {
+        let toml = "pomodoro_work_minutes = 50\npomodoro_break_minutes = 10\n";
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.pomodoro_work_minutes, 50);
+        assert_eq!(config.pomodoro_break_minutes, 10);
     }
 
     #[test]

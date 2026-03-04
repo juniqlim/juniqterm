@@ -140,7 +140,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
     }
     let mut copy_mode = CopyMode::new();
     let mut copy_mode_action_map = config.copy_mode_keys.build_action_map();
-    let mut pomodoro = Pomodoro::new();
+    let mut pomodoro = Pomodoro::new(config.pomodoro_work_minutes * 60, config.pomodoro_break_minutes * 60);
     if config.pomodoro {
         pomodoro.toggle();
         window.set_pomodoro_checked(true);
@@ -989,6 +989,19 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                     let term_rows = tabs.term_rows(h, ch, drawer.tab_bar_height());
                     resize_all_tabs(&mut tabs, cols, term_rows);
                 }
+                // Apply pomodoro time changes
+                if new_config.pomodoro_work_minutes != config.pomodoro_work_minutes
+                    || new_config.pomodoro_break_minutes != config.pomodoro_break_minutes
+                {
+                    let was_enabled = pomodoro.is_enabled();
+                    pomodoro = Pomodoro::new(
+                        new_config.pomodoro_work_minutes * 60,
+                        new_config.pomodoro_break_minutes * 60,
+                    );
+                    if was_enabled {
+                        pomodoro.toggle();
+                    }
+                }
                 // Apply toggle changes
                 if new_config.pomodoro != config.pomodoro {
                     pomodoro.toggle();
@@ -1325,7 +1338,7 @@ mod tests {
     fn simulate_pomodoro_coaching_flow() {
         use crate::pomodoro::Pomodoro;
 
-        let mut pomodoro = Pomodoro::new();
+        let mut pomodoro = Pomodoro::new(25 * 60, 3 * 60);
         pomodoro.toggle(); // enable
 
         // Create a grid with some pre-existing content (before pomodoro starts)
@@ -1372,7 +1385,7 @@ mod tests {
     fn coaching_captures_output_within_screen() {
         use crate::pomodoro::Pomodoro;
 
-        let mut pomodoro = Pomodoro::new();
+        let mut pomodoro = Pomodoro::new(25 * 60, 3 * 60);
         pomodoro.toggle();
 
         // Only 1 line before work starts, screen has 24 rows
@@ -1396,7 +1409,7 @@ mod tests {
     fn coaching_captures_output_with_scrollback_overflow() {
         use crate::pomodoro::Pomodoro;
 
-        let mut pomodoro = Pomodoro::new();
+        let mut pomodoro = Pomodoro::new(25 * 60, 3 * 60);
         pomodoro.toggle();
 
         let mut grid = growterm_grid::Grid::new(80, 5); // tiny 5-row screen
