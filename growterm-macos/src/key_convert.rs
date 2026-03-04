@@ -40,10 +40,37 @@ pub mod keycode {
     pub const ANSI_J: u16 = 0x26;
     pub const ANSI_K: u16 = 0x28;
     pub const ANSI_L: u16 = 0x25;
+    pub const ANSI_D: u16 = 0x02;
+    pub const ANSI_U: u16 = 0x20;
     pub const ANSI_N: u16 = 0x2D;
     pub const ANSI_Y: u16 = 0x10;
     pub const ANSI_R: u16 = 0x0F;
     pub const ANSI_GRAVE: u16 = 0x32; // ` (backtick / ₩)
+}
+
+/// 문자열 → macOS keycode 변환 (복사모드 키 설정용)
+pub fn char_to_keycode(s: &str) -> Option<u16> {
+    match s {
+        "a" => Some(keycode::ANSI_A),
+        "c" => Some(keycode::ANSI_C),
+        "d" => Some(keycode::ANSI_D),
+        "h" => Some(keycode::ANSI_H),
+        "j" => Some(keycode::ANSI_J),
+        "k" => Some(keycode::ANSI_K),
+        "l" => Some(keycode::ANSI_L),
+        "n" => Some(keycode::ANSI_N),
+        "p" => Some(keycode::ANSI_P),
+        "q" => Some(keycode::ANSI_Q),
+        "r" => Some(keycode::ANSI_R),
+        "t" => Some(keycode::ANSI_T),
+        "u" => Some(keycode::ANSI_U),
+        "v" => Some(keycode::ANSI_V),
+        "w" => Some(keycode::ANSI_W),
+        "y" => Some(keycode::ANSI_Y),
+        "Escape" => Some(keycode::ESCAPE),
+        "`" => Some(keycode::ANSI_GRAVE),
+        _ => None,
+    }
 }
 
 /// macOS keycode + characters → growterm_types::KeyEvent 변환
@@ -248,5 +275,30 @@ mod tests {
     fn multi_char_characters_returns_none() {
         let result = convert_key(0x00, Some("ab"), Modifiers::empty());
         assert_eq!(result, None);
+    }
+
+    #[test]
+    fn char_to_keycode_letters() {
+        assert_eq!(char_to_keycode("j"), Some(keycode::ANSI_J));
+        assert_eq!(char_to_keycode("k"), Some(keycode::ANSI_K));
+        assert_eq!(char_to_keycode("h"), Some(keycode::ANSI_H));
+        assert_eq!(char_to_keycode("l"), Some(keycode::ANSI_L));
+        assert_eq!(char_to_keycode("v"), Some(keycode::ANSI_V));
+        assert_eq!(char_to_keycode("y"), Some(keycode::ANSI_Y));
+        assert_eq!(char_to_keycode("q"), Some(keycode::ANSI_Q));
+        assert_eq!(char_to_keycode("d"), Some(keycode::ANSI_D));
+        assert_eq!(char_to_keycode("u"), Some(keycode::ANSI_U));
+    }
+
+    #[test]
+    fn char_to_keycode_special() {
+        assert_eq!(char_to_keycode("Escape"), Some(keycode::ESCAPE));
+        assert_eq!(char_to_keycode("`"), Some(keycode::ANSI_GRAVE));
+    }
+
+    #[test]
+    fn char_to_keycode_unknown() {
+        assert_eq!(char_to_keycode("z"), None);
+        assert_eq!(char_to_keycode("F1"), None);
     }
 }

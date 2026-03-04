@@ -1,5 +1,98 @@
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::path::PathBuf;
+
+use growterm_macos::key_convert::char_to_keycode;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CopyModeAction {
+    Down,
+    Up,
+    Visual,
+    HalfPageDown,
+    HalfPageUp,
+    Yank,
+    Exit,
+}
+
+fn deserialize_keys<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum OneOrMany {
+        One(String),
+        Many(Vec<String>),
+    }
+    match OneOrMany::deserialize(deserializer)? {
+        OneOrMany::One(s) => Ok(vec![s]),
+        OneOrMany::Many(v) => Ok(v),
+    }
+}
+
+fn default_down() -> Vec<String> { vec!["j".into()] }
+fn default_up() -> Vec<String> { vec!["k".into()] }
+fn default_visual() -> Vec<String> { vec!["v".into()] }
+fn default_half_page_down() -> Vec<String> { vec!["h".into(), "d".into()] }
+fn default_half_page_up() -> Vec<String> { vec!["l".into(), "u".into()] }
+fn default_yank() -> Vec<String> { vec!["y".into()] }
+fn default_exit() -> Vec<String> { vec!["q".into(), "Escape".into(), "`".into()] }
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct CopyModeKeys {
+    #[serde(default = "default_down", deserialize_with = "deserialize_keys")]
+    pub down: Vec<String>,
+    #[serde(default = "default_up", deserialize_with = "deserialize_keys")]
+    pub up: Vec<String>,
+    #[serde(default = "default_visual", deserialize_with = "deserialize_keys")]
+    pub visual: Vec<String>,
+    #[serde(default = "default_half_page_down", deserialize_with = "deserialize_keys")]
+    pub half_page_down: Vec<String>,
+    #[serde(default = "default_half_page_up", deserialize_with = "deserialize_keys")]
+    pub half_page_up: Vec<String>,
+    #[serde(default = "default_yank", deserialize_with = "deserialize_keys")]
+    pub yank: Vec<String>,
+    #[serde(default = "default_exit", deserialize_with = "deserialize_keys")]
+    pub exit: Vec<String>,
+}
+
+impl Default for CopyModeKeys {
+    fn default() -> Self {
+        Self {
+            down: default_down(),
+            up: default_up(),
+            visual: default_visual(),
+            half_page_down: default_half_page_down(),
+            half_page_up: default_half_page_up(),
+            yank: default_yank(),
+            exit: default_exit(),
+        }
+    }
+}
+
+impl CopyModeKeys {
+    pub fn build_action_map(&self) -> HashMap<u16, CopyModeAction> {
+        let mut map = HashMap::new();
+        let bindings: &[(&[String], CopyModeAction)] = &[
+            (&self.down, CopyModeAction::Down),
+            (&self.up, CopyModeAction::Up),
+            (&self.visual, CopyModeAction::Visual),
+            (&self.half_page_down, CopyModeAction::HalfPageDown),
+            (&self.half_page_up, CopyModeAction::HalfPageUp),
+            (&self.yank, CopyModeAction::Yank),
+            (&self.exit, CopyModeAction::Exit),
+        ];
+        for (keys, action) in bindings {
+            for key_str in *keys {
+                if let Some(kc) = char_to_keycode(key_str) {
+                    map.insert(kc, *action);
+                }
+            }
+        }
+        map
+    }
+}
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct Config {
@@ -19,6 +112,8 @@ pub struct Config {
     pub header_opacity: f32,
     #[serde(default)]
     pub coaching_command: Option<String>,
+    #[serde(default)]
+    pub copy_mode_keys: CopyModeKeys,
 }
 
 fn default_font_family() -> String {
@@ -48,6 +143,7 @@ impl Default for Config {
             transparent_tab_bar: false,
             header_opacity: default_header_opacity(),
             coaching_command: None,
+            copy_mode_keys: CopyModeKeys::default(),
         }
     }
 }
@@ -114,6 +210,7 @@ impl Config {
             transparent_tab_bar: read_bool("transparent_tab_bar", false),
             header_opacity: default_header_opacity(),
             coaching_command: None,
+            copy_mode_keys: CopyModeKeys::default(),
         }
     }
 
@@ -214,6 +311,65 @@ coaching_command = "claude -p --system 'You are a coach' '{prompt}'"
         assert!(config.transparent_tab_bar);
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn copy_mode_keys_default() {
+        let config: Config = toml::from_str("").unwrap();
+        assert_eq!(config.copy_mode_keys.down, vec!["j"]);
+        assert_eq!(config.copy_mode_keys.exit, vec!["q", "Escape", "`"]);
+    }
+
+    #[test]
+    fn copy_mode_keys_custom() {
+        let toml = r#"
+[copy_mode_keys]
+down = "n"
+half_page_down = ["d", "h"]
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.copy_mode_keys.down, vec!["n"]);
+        assert_eq!(config.copy_mode_keys.half_page_down, vec!["d", "h"]);
+        // defaults preserved for unspecified
+        assert_eq!(config.copy_mode_keys.up, vec!["k"]);
+    }
+
+    #[test]
+    fn copy_mode_keys_single_string_deserialized_as_vec() {
+        let toml = r#"
+[copy_mode_keys]
+exit = "q"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.copy_mode_keys.exit, vec!["q"]);
+    }
+
+    #[test]
+    fn build_action_map_default() {
+        use growterm_macos::key_convert::keycode as kc;
+        let keys = CopyModeKeys::default();
+        let map = keys.build_action_map();
+        assert_eq!(map.get(&kc::ANSI_J), Some(&CopyModeAction::Down));
+        assert_eq!(map.get(&kc::ANSI_K), Some(&CopyModeAction::Up));
+        assert_eq!(map.get(&kc::ANSI_V), Some(&CopyModeAction::Visual));
+        assert_eq!(map.get(&kc::ANSI_H), Some(&CopyModeAction::HalfPageDown));
+        assert_eq!(map.get(&kc::ANSI_D), Some(&CopyModeAction::HalfPageDown));
+        assert_eq!(map.get(&kc::ANSI_L), Some(&CopyModeAction::HalfPageUp));
+        assert_eq!(map.get(&kc::ANSI_U), Some(&CopyModeAction::HalfPageUp));
+        assert_eq!(map.get(&kc::ANSI_Y), Some(&CopyModeAction::Yank));
+        assert_eq!(map.get(&kc::ESCAPE), Some(&CopyModeAction::Exit));
+        assert_eq!(map.get(&kc::ANSI_Q), Some(&CopyModeAction::Exit));
+        assert_eq!(map.get(&kc::ANSI_GRAVE), Some(&CopyModeAction::Exit));
+    }
+
+    #[test]
+    fn build_action_map_custom() {
+        use growterm_macos::key_convert::keycode as kc;
+        let mut keys = CopyModeKeys::default();
+        keys.down = vec!["n".into()];
+        let map = keys.build_action_map();
+        assert_eq!(map.get(&kc::ANSI_N), Some(&CopyModeAction::Down));
+        assert_eq!(map.get(&kc::ANSI_J), None); // j no longer mapped
     }
 
     #[test]

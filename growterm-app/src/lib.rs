@@ -1,3 +1,4 @@
+pub mod config;
 pub mod copy_mode;
 pub mod ink_workaround;
 pub mod pomodoro;

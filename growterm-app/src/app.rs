@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use growterm_gpu_draw::GpuDrawer;
 use growterm_macos::{AppEvent, MacWindow, Modifiers};
 
+use crate::config::CopyModeAction;
 use crate::copy_mode::CopyMode;
 use crate::ink_workaround::InkImeState;
 use crate::pomodoro::{Pomodoro, TickResult};
@@ -64,6 +65,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
         window.set_response_timer_checked(true);
     }
     let mut copy_mode = CopyMode::new();
+    let mut copy_mode_action_map = config.copy_mode_keys.build_action_map();
     let mut pomodoro = Pomodoro::new();
     if config.pomodoro {
         pomodoro.toggle();
@@ -430,54 +432,55 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                         sb_len + screen_rows - 1
                     });
 
-                    match keycode {
-                        kc::ANSI_J => {
-                            copy_mode.move_down(cols, max_row, &mut sel);
-                        }
-                        kc::ANSI_K => {
-                            copy_mode.move_up(cols, &mut sel);
-                        }
-                        kc::ANSI_V => {
-                            copy_mode.toggle_visual(cols, &mut sel);
-                        }
-                        kc::ANSI_H => {
-                            copy_mode.move_right(cols, max_row, &mut sel);
-                        }
-                        kc::ANSI_L => {
-                            copy_mode.move_left(cols, &mut sel);
-                        }
-                        kc::ANSI_Y => {
-                            // y: 선택 텍스트 클립보드에 복사 후 모드 종료
-                            if !sel.is_empty() {
-                                if let Some(tab) = tabs.active_tab() {
-                                    let state = tab.terminal.lock().unwrap();
-                                    let text = selection::extract_text_absolute(&state.grid, &sel);
-                                    drop(state);
-                                    if !text.is_empty() {
-                                        if let Ok(mut clipboard) = arboard::Clipboard::new() {
-                                            let _ = clipboard.set_text(text);
+                    if let Some(action) = copy_mode_action_map.get(&keycode) {
+                        match action {
+                            CopyModeAction::Down => {
+                                copy_mode.move_down(cols, max_row, &mut sel);
+                            }
+                            CopyModeAction::Up => {
+                                copy_mode.move_up(cols, &mut sel);
+                            }
+                            CopyModeAction::Visual => {
+                                copy_mode.toggle_visual(cols, &mut sel);
+                            }
+                            CopyModeAction::HalfPageDown => {
+                                copy_mode.move_right(cols, max_row, &mut sel);
+                            }
+                            CopyModeAction::HalfPageUp => {
+                                copy_mode.move_left(cols, &mut sel);
+                            }
+                            CopyModeAction::Yank => {
+                                // y: 선택 텍스트 클립보드에 복사 후 모드 종료
+                                if !sel.is_empty() {
+                                    if let Some(tab) = tabs.active_tab() {
+                                        let state = tab.terminal.lock().unwrap();
+                                        let text = selection::extract_text_absolute(&state.grid, &sel);
+                                        drop(state);
+                                        if !text.is_empty() {
+                                            if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                                                let _ = clipboard.set_text(text);
+                                            }
                                         }
                                     }
                                 }
+                                copy_mode.exit(&mut sel);
+                                window.set_copy_mode(false);
+                                // 스크롤을 맨 아래(입력 위치)로 이동
+                                if let Some(tab) = tabs.active_tab() {
+                                    let mut state = tab.terminal.lock().unwrap();
+                                    state.grid.set_scroll_offset(0);
+                                }
                             }
-                            copy_mode.exit(&mut sel);
-                            window.set_copy_mode(false);
-                            // 스크롤을 맨 아래(입력 위치)로 이동
-                            if let Some(tab) = tabs.active_tab() {
-                                let mut state = tab.terminal.lock().unwrap();
-                                state.grid.set_scroll_offset(0);
+                            CopyModeAction::Exit => {
+                                copy_mode.exit(&mut sel);
+                                window.set_copy_mode(false);
+                                // 스크롤을 맨 아래(입력 위치)로 이동
+                                if let Some(tab) = tabs.active_tab() {
+                                    let mut state = tab.terminal.lock().unwrap();
+                                    state.grid.set_scroll_offset(0);
+                                }
                             }
                         }
-                        kc::ESCAPE | kc::ANSI_Q | kc::ANSI_GRAVE => {
-                            copy_mode.exit(&mut sel);
-                            window.set_copy_mode(false);
-                            // 스크롤을 맨 아래(입력 위치)로 이동
-                            if let Some(tab) = tabs.active_tab() {
-                                let mut state = tab.terminal.lock().unwrap();
-                                state.grid.set_scroll_offset(0);
-                            }
-                        }
-                        _ => {}
                     }
 
                     // 커서 행이 화면에 보이도록 스크롤 조정 (복사모드 활성 중에만)
@@ -1051,6 +1054,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                     };
                 }
                 header_opacity = new_config.header_opacity;
+                copy_mode_action_map = new_config.copy_mode_keys.build_action_map();
                 config = new_config;
             }
             AppEvent::CloseRequested => {
