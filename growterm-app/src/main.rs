@@ -15,7 +15,10 @@ fn main() {
     let font_size = config.font_size;
     let font_family = config.font_family.clone();
 
-    growterm_macos::run(move |window, rx| {
+    let window_size = config.window_size();
+    let window_position = config.window_position();
+
+    growterm_macos::run(window_size, window_position, move |window, rx| {
         // GpuDrawer must be created on the main thread (Metal requirement)
         let (width, height) = window.inner_size();
         let font_path = resolve_font_path(&font_family);

@@ -49,7 +49,7 @@ pub struct MacWindow {
 }
 
 impl MacWindow {
-    pub fn new(mtm: MainThreadMarker, title: &str, width: f64, height: f64) -> Self {
+    pub fn new(mtm: MainThreadMarker, title: &str, width: f64, height: f64, position: Option<(f64, f64)>) -> Self {
         let content_rect = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(width, height));
         let style = NSWindowStyleMask::Titled
             | NSWindowStyleMask::Closable
@@ -76,7 +76,9 @@ impl MacWindow {
 
         let title_str = NSString::from_str(title);
         ns_window.setTitle(&title_str);
-        ns_window.center();
+        if position.is_none() {
+            ns_window.center();
+        }
 
         Self { ns_window, view }
     }
@@ -168,7 +170,9 @@ impl MacWindow {
             } else {
                 style -= NSWindowStyleMask::FullSizeContentView;
             }
+            let frame = window.frame();
             window.setStyleMask(style);
+            window.setFrame_display(frame, true);
         });
     }
 
@@ -176,6 +180,17 @@ impl MacWindow {
         let frame = self.ns_window.frame();
         let content_rect = self.ns_window.contentLayoutRect();
         (frame.size.height - content_rect.size.height) * self.backing_scale_factor()
+    }
+
+    /// 화면 좌상단 기준 좌표(x, y)로 윈도우를 이동.
+    /// macOS 좌표계(좌하단 원점)로 변환하여 적용.
+    pub fn set_position(&self, x: f64, y: f64) {
+        let screen_height = self.ns_window.screen()
+            .map(|s| s.frame().size.height)
+            .unwrap_or(900.0);
+        let window_height = self.ns_window.frame().size.height;
+        let flipped_y = screen_height - y - window_height;
+        self.ns_window.setFrameOrigin(NSPoint::new(x, flipped_y));
     }
 
     pub fn show(&self) {

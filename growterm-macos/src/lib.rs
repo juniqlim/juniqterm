@@ -43,7 +43,11 @@ use delegate::AppDelegate;
 /// 이 함수는 메인 스레드에서 호출되어야 하며 반환하지 않음.
 /// `setup` 콜백은 applicationDidFinishLaunching에서 호출되어
 /// IMK 입력 서버 연결이 완료된 상태에서 윈도우가 생성됨.
-pub fn run(setup: impl FnOnce(std::sync::Arc<MacWindow>, mpsc::Receiver<AppEvent>) + 'static) -> ! {
+pub fn run(
+    window_size: (f64, f64),
+    window_position: Option<(f64, f64)>,
+    setup: impl FnOnce(std::sync::Arc<MacWindow>, mpsc::Receiver<AppEvent>) + 'static,
+) -> ! {
     // bare 바이너리(cargo run)에서도 IMK 입력 서버가 연결되도록
     // 번들 ID를 런타임에 설정. .app 번들로 실행 시에는 Info.plist 값이 이미 있으므로 무해.
     ensure_bundle_identifier();
@@ -53,7 +57,7 @@ pub fn run(setup: impl FnOnce(std::sync::Arc<MacWindow>, mpsc::Receiver<AppEvent
     let app = NSApplication::sharedApplication(mtm);
     app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
     setup_main_menu(&app);
-    let delegate = AppDelegate::new(mtm, Box::new(setup));
+    let delegate = AppDelegate::new(mtm, window_size, window_position, Box::new(setup));
     let delegate_proto: &ProtocolObject<dyn NSApplicationDelegate> =
         ProtocolObject::from_ref(&*delegate);
     app.setDelegate(Some(delegate_proto));

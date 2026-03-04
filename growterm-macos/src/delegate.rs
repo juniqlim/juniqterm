@@ -13,6 +13,8 @@ type SetupFn = Box<dyn FnOnce(Arc<MacWindow>, mpsc::Receiver<AppEvent>) + 'stati
 
 pub(crate) struct DelegateIvars {
     setup: RefCell<Option<SetupFn>>,
+    window_size: (f64, f64),
+    window_position: Option<(f64, f64)>,
 }
 
 define_class! {
@@ -35,13 +37,18 @@ define_class! {
             // didFinishLaunching 시점에는 IMK 입력 서버의 mach port 연결이
             // 아직 완료되지 않아, 즉시 윈도우를 만들면 자소 분리가 발생함.
             let setup = self.ivars().setup.borrow_mut().take();
+            let (w, h) = self.ivars().window_size;
+            let pos = self.ivars().window_position;
             if let Some(setup) = setup {
                 dispatch_async_main(move || {
                     let mtm = MainThreadMarker::new().unwrap();
-                    let mac_window = MacWindow::new(mtm, "growterm", 800.0, 600.0);
+                    let mac_window = MacWindow::new(mtm, "growterm", w, h, pos);
                     let (tx, rx) = mpsc::channel();
                     mac_window.set_sender(tx);
                     mac_window.show();
+                    if let Some((x, y)) = pos {
+                        mac_window.set_position(x, y);
+                    }
 
                     let mac_window = Arc::new(mac_window);
                     setup(mac_window, rx);
@@ -85,9 +92,11 @@ fn dispatch_async_main<F: FnOnce() + 'static>(f: F) {
 }
 
 impl AppDelegate {
-    pub(crate) fn new(mtm: MainThreadMarker, setup: SetupFn) -> Retained<Self> {
+    pub(crate) fn new(mtm: MainThreadMarker, window_size: (f64, f64), window_position: Option<(f64, f64)>, setup: SetupFn) -> Retained<Self> {
         let this = mtm.alloc::<Self>().set_ivars(DelegateIvars {
             setup: RefCell::new(Some(setup)),
+            window_size,
+            window_position,
         });
         unsafe { objc2::msg_send![super(this), init] }
     }

@@ -114,6 +114,14 @@ pub struct Config {
     pub coaching_command: Option<String>,
     #[serde(default)]
     pub copy_mode_keys: CopyModeKeys,
+    #[serde(default)]
+    pub window_width: Option<f64>,
+    #[serde(default)]
+    pub window_height: Option<f64>,
+    #[serde(default)]
+    pub window_x: Option<f64>,
+    #[serde(default)]
+    pub window_y: Option<f64>,
 }
 
 fn default_font_family() -> String {
@@ -144,6 +152,23 @@ impl Default for Config {
             header_opacity: default_header_opacity(),
             coaching_command: None,
             copy_mode_keys: CopyModeKeys::default(),
+            window_width: None,
+            window_height: None,
+            window_x: None,
+            window_y: None,
+        }
+    }
+}
+
+impl Config {
+    pub fn window_size(&self) -> (f64, f64) {
+        (self.window_width.unwrap_or(800.0), self.window_height.unwrap_or(600.0))
+    }
+
+    pub fn window_position(&self) -> Option<(f64, f64)> {
+        match (self.window_x, self.window_y) {
+            (Some(x), Some(y)) => Some((x, y)),
+            _ => None,
         }
     }
 }
@@ -211,6 +236,10 @@ impl Config {
             header_opacity: default_header_opacity(),
             coaching_command: None,
             copy_mode_keys: CopyModeKeys::default(),
+            window_width: None,
+            window_height: None,
+            window_x: None,
+            window_y: None,
         }
     }
 
@@ -221,8 +250,21 @@ impl Config {
             Some(cmd) => format!("coaching_command = {:?}\n", cmd),
             None => String::new(),
         };
+        let mut window_lines = String::new();
+        if let Some(w) = self.window_width {
+            window_lines += &format!("window_width = {}\n", w);
+        }
+        if let Some(h) = self.window_height {
+            window_lines += &format!("window_height = {}\n", h);
+        }
+        if let Some(x) = self.window_x {
+            window_lines += &format!("window_x = {}\n", x);
+        }
+        if let Some(y) = self.window_y {
+            window_lines += &format!("window_y = {}\n", y);
+        }
         let content = format!(
-            "font_family = {:?}\nfont_size = {}\npomodoro = {}\nresponse_timer = {}\ncoaching = {}\ntransparent_tab_bar = {}\nheader_opacity = {}\n{coaching_cmd_line}",
+            "font_family = {:?}\nfont_size = {}\npomodoro = {}\nresponse_timer = {}\ncoaching = {}\ntransparent_tab_bar = {}\nheader_opacity = {}\n{coaching_cmd_line}{window_lines}",
             self.font_family, self.font_size, self.pomodoro, self.response_timer, self.coaching, self.transparent_tab_bar, self.header_opacity,
         );
         let _ = std::fs::write(config_path(), content);
@@ -370,6 +412,33 @@ exit = "q"
         let map = keys.build_action_map();
         assert_eq!(map.get(&kc::ANSI_N), Some(&CopyModeAction::Down));
         assert_eq!(map.get(&kc::ANSI_J), None); // j no longer mapped
+    }
+
+    #[test]
+    fn window_size_defaults() {
+        let config: Config = toml::from_str("").unwrap();
+        assert_eq!(config.window_size(), (800.0, 600.0));
+        assert_eq!(config.window_position(), None);
+    }
+
+    #[test]
+    fn window_size_and_position_from_config() {
+        let toml = r#"
+window_width = 1200
+window_height = 800
+window_x = 100
+window_y = 50
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.window_size(), (1200.0, 800.0));
+        assert_eq!(config.window_position(), Some((100.0, 50.0)));
+    }
+
+    #[test]
+    fn window_position_requires_both_x_and_y() {
+        let toml = "window_x = 100\n";
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.window_position(), None);
     }
 
     #[test]
