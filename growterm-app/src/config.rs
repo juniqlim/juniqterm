@@ -12,6 +12,7 @@ pub enum CopyModeAction {
     HalfPageDown,
     HalfPageUp,
     Yank,
+    OpenUrl,
     Exit,
 }
 
@@ -37,6 +38,7 @@ fn default_visual() -> Vec<String> { vec!["v".into()] }
 fn default_half_page_down() -> Vec<String> { vec!["h".into(), "d".into()] }
 fn default_half_page_up() -> Vec<String> { vec!["l".into(), "u".into()] }
 fn default_yank() -> Vec<String> { vec!["y".into()] }
+fn default_open_url() -> Vec<String> { vec!["o".into()] }
 fn default_exit() -> Vec<String> { vec!["q".into(), "Escape".into(), "`".into()] }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -53,6 +55,8 @@ pub struct CopyModeKeys {
     pub half_page_up: Vec<String>,
     #[serde(default = "default_yank", deserialize_with = "deserialize_keys")]
     pub yank: Vec<String>,
+    #[serde(default = "default_open_url", deserialize_with = "deserialize_keys")]
+    pub open_url: Vec<String>,
     #[serde(default = "default_exit", deserialize_with = "deserialize_keys")]
     pub exit: Vec<String>,
 }
@@ -66,6 +70,7 @@ impl Default for CopyModeKeys {
             half_page_down: default_half_page_down(),
             half_page_up: default_half_page_up(),
             yank: default_yank(),
+            open_url: default_open_url(),
             exit: default_exit(),
         }
     }
@@ -81,6 +86,7 @@ impl CopyModeKeys {
             (&self.half_page_down, CopyModeAction::HalfPageDown),
             (&self.half_page_up, CopyModeAction::HalfPageUp),
             (&self.yank, CopyModeAction::Yank),
+            (&self.open_url, CopyModeAction::OpenUrl),
             (&self.exit, CopyModeAction::Exit),
         ];
         for (keys, action) in bindings {
@@ -396,6 +402,7 @@ exit = "q"
         assert_eq!(map.get(&kc::ANSI_L), Some(&CopyModeAction::HalfPageUp));
         assert_eq!(map.get(&kc::ANSI_U), Some(&CopyModeAction::HalfPageUp));
         assert_eq!(map.get(&kc::ANSI_Y), Some(&CopyModeAction::Yank));
+        assert_eq!(map.get(&kc::ANSI_O), Some(&CopyModeAction::OpenUrl));
         assert_eq!(map.get(&kc::ESCAPE), Some(&CopyModeAction::Exit));
         assert_eq!(map.get(&kc::ANSI_Q), Some(&CopyModeAction::Exit));
         assert_eq!(map.get(&kc::ANSI_GRAVE), Some(&CopyModeAction::Exit));

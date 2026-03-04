@@ -516,6 +516,24 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                                 }
                                 exit_copy_mode(&mut copy_mode, &mut sel, &window, &tabs);
                             }
+                            CopyModeAction::OpenUrl => {
+                                if let Some(tab) = tabs.active_tab() {
+                                    let state = tab.terminal.lock().unwrap();
+                                    let min_row = sel.start.0.min(sel.end.0);
+                                    let max_row = sel.start.0.max(sel.end.0);
+                                    let mut urls = Vec::new();
+                                    for row in min_row..=max_row {
+                                        let row_text = selection::row_text_absolute(&state.grid, row);
+                                        urls.extend(url::find_all_urls(&row_text).into_iter().map(String::from));
+                                    }
+                                    drop(state);
+                                    for u in &urls {
+                                        let _ = std::process::Command::new("open")
+                                            .arg(u)
+                                            .spawn();
+                                    }
+                                }
+                            }
                             CopyModeAction::Exit => {
                                 exit_copy_mode(&mut copy_mode, &mut sel, &window, &tabs);
                             }

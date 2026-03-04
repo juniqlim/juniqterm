@@ -6,6 +6,31 @@ pub fn find_url_at(text: &str, col: usize) -> Option<&str> {
     Some(&text[start..end])
 }
 
+/// Find all URLs in the text.
+pub fn find_all_urls(text: &str) -> Vec<&str> {
+    let mut urls = Vec::new();
+    let mut search_start = 0;
+    loop {
+        let rest = &text[search_start..];
+        let https_pos = rest.find("https://");
+        let http_pos = rest.find("http://");
+        let offset = match (https_pos, http_pos) {
+            (Some(a), Some(b)) => a.min(b),
+            (Some(a), None) => a,
+            (None, Some(b)) => b,
+            (None, None) => break,
+        };
+        let url_start = search_start + offset;
+        let url_end = find_url_end(text, url_start);
+        urls.push(&text[url_start..url_end]);
+        search_start = if url_end > url_start { url_end } else { url_start + 1 };
+        if search_start >= text.len() {
+            break;
+        }
+    }
+    urls
+}
+
 /// Find the column (character index) range of a URL at the given column position.
 /// Returns (start_col, end_col) character indices if `col` falls within a URL range.
 pub fn find_url_range_at(text: &str, col: usize) -> Option<(usize, usize)> {
@@ -261,6 +286,15 @@ mod tests {
         let text = "가 https://x.com done";
         // URL starts at char index 2, "https://x.com" = 13 chars, ends at char 15
         assert_eq!(find_url_range_at(text, 2), Some((2, 15)));
+    }
+
+    #[test]
+    fn find_all_urls_in_text() {
+        assert_eq!(find_all_urls("Visit https://google.com for more"), vec!["https://google.com"]);
+        assert_eq!(find_all_urls("a https://first.com b https://second.com"), vec!["https://first.com", "https://second.com"]);
+        assert!(find_all_urls("no url here").is_empty());
+        assert!(find_all_urls("").is_empty());
+        assert_eq!(find_all_urls("http://a.com and https://b.com"), vec!["http://a.com", "https://b.com"]);
     }
 
     #[test]

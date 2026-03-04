@@ -43,6 +43,7 @@ pub mod keycode {
     pub const ANSI_D: u16 = 0x02;
     pub const ANSI_U: u16 = 0x20;
     pub const ANSI_N: u16 = 0x2D;
+    pub const ANSI_O: u16 = 0x1F;
     pub const ANSI_Y: u16 = 0x10;
     pub const ANSI_R: u16 = 0x0F;
     pub const ANSI_GRAVE: u16 = 0x32; // ` (backtick / ₩)
@@ -59,6 +60,7 @@ pub fn char_to_keycode(s: &str) -> Option<u16> {
         "k" => Some(keycode::ANSI_K),
         "l" => Some(keycode::ANSI_L),
         "n" => Some(keycode::ANSI_N),
+        "o" => Some(keycode::ANSI_O),
         "p" => Some(keycode::ANSI_P),
         "q" => Some(keycode::ANSI_Q),
         "r" => Some(keycode::ANSI_R),
