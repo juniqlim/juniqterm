@@ -105,7 +105,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                 Err(_) => break,
             }
         };
-        let screen_full = tabs.active_tab()
+        let has_scrollback = tabs.active_tab()
             .map(|t| t.terminal.lock().unwrap().grid.scrollback_len() > 0)
             .unwrap_or(false);
         match event {
@@ -533,7 +533,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                 let (cw, ch) = drawer.cell_size();
 
                 // Tab bar click: start drag
-                if tabs.show_tab_bar() && crate::tab::hit_test_tab_bar(y as f32, drawer.tab_bar_height(), tabs.mouse_y_offset(drawer.tab_bar_height(), title_bar_height, screen_full)) {
+                if tabs.show_tab_bar() && crate::tab::hit_test_tab_bar(y as f32, drawer.tab_bar_height(), tabs.tab_bar_y(title_bar_height)) {
                     let screen_w = window.inner_size().0 as f32;
                     if let Some(index) = tabs.tab_index_at_x(x as f32, screen_w) {
                         tab_dragging = Some(index);
@@ -545,7 +545,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
 
                 // Mouse tracking: send SGR report to PTY
                 {
-                    let y_offset = tabs.mouse_y_offset(drawer.tab_bar_height(), title_bar_height, screen_full);
+                    let y_offset = tabs.mouse_y_offset(drawer.tab_bar_height(), title_bar_height, has_scrollback);
                     if let Some(tab) = tabs.active_tab_mut() {
                         let mode = tab.mouse_mode.load(Ordering::Relaxed);
                         if mode > 0 {
@@ -570,7 +570,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                         if scrollback_len > 0 {
                             scrollbar_dragging = true;
                             scrollbar_visible_until = Some(Instant::now() + SCROLLBAR_SHOW_DURATION);
-                            let tab_bar_offset = tabs.mouse_y_offset(drawer.tab_bar_height(), title_bar_height, screen_full);
+                            let tab_bar_offset = tabs.mouse_y_offset(drawer.tab_bar_height(), title_bar_height, has_scrollback);
                             let content_h = screen_h - tab_bar_offset;
                             let ratio = ((y as f32) - tab_bar_offset).clamp(0.0, content_h) / content_h;
                             let rows = state.grid.cells().len();
@@ -586,7 +586,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                 }
 
                 let (screen_row, col) =
-                    selection::mouse_pixel_to_cell(x as f32, y as f32, cw, ch, tabs.mouse_y_offset(drawer.tab_bar_height(), title_bar_height, screen_full));
+                    selection::mouse_pixel_to_cell(x as f32, y as f32, cw, ch, tabs.mouse_y_offset(drawer.tab_bar_height(), title_bar_height, has_scrollback));
                 let abs_row = if let Some(tab) = tabs.active_tab() {
                     let state = tab.terminal.lock().unwrap();
                     let base = state
@@ -632,7 +632,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                 }
                 // Mouse tracking: send SGR drag report to PTY
                 {
-                    let y_offset = tabs.mouse_y_offset(drawer.tab_bar_height(), title_bar_height, screen_full);
+                    let y_offset = tabs.mouse_y_offset(drawer.tab_bar_height(), title_bar_height, has_scrollback);
                     if let Some(tab) = tabs.active_tab_mut() {
                         let mode = tab.mouse_mode.load(Ordering::Relaxed);
                         if mode >= 2 {
@@ -650,7 +650,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                 }
                 if scrollbar_dragging {
                     let screen_h = window.inner_size().1 as f32;
-                    let tab_bar_offset = tabs.mouse_y_offset(drawer.tab_bar_height(), title_bar_height, screen_full);
+                    let tab_bar_offset = tabs.mouse_y_offset(drawer.tab_bar_height(), title_bar_height, has_scrollback);
                     let content_h = screen_h - tab_bar_offset;
                     let ratio = ((y as f32) - tab_bar_offset).clamp(0.0, content_h) / content_h;
                     if let Some(tab) = tabs.active_tab() {
@@ -669,7 +669,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                     let (cw, ch) = drawer.cell_size();
                     let (screen_row, col) = selection::mouse_pixel_to_cell(
                         x as f32, y as f32, cw, ch,
-                        tabs.mouse_y_offset(drawer.tab_bar_height(), title_bar_height, screen_full),
+                        tabs.mouse_y_offset(drawer.tab_bar_height(), title_bar_height, has_scrollback),
                     );
                     let abs_row = if let Some(tab) = tabs.active_tab() {
                         let state = tab.terminal.lock().unwrap();
@@ -704,13 +704,13 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                     continue;
                 }
                 let (cw, ch) = drawer.cell_size();
-                if tabs.show_tab_bar() && crate::tab::hit_test_tab_bar(y as f32, drawer.tab_bar_height(), tabs.mouse_y_offset(drawer.tab_bar_height(), title_bar_height, screen_full)) {
+                if tabs.show_tab_bar() && crate::tab::hit_test_tab_bar(y as f32, drawer.tab_bar_height(), tabs.tab_bar_y(title_bar_height)) {
                     continue;
                 }
 
                 // Mouse tracking: send SGR release report to PTY
                 {
-                    let y_offset = tabs.mouse_y_offset(drawer.tab_bar_height(), title_bar_height, screen_full);
+                    let y_offset = tabs.mouse_y_offset(drawer.tab_bar_height(), title_bar_height, has_scrollback);
                     if let Some(tab) = tabs.active_tab_mut() {
                         let mode = tab.mouse_mode.load(Ordering::Relaxed);
                         if mode > 0 {
@@ -726,7 +726,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                 }
 
                 let (screen_row, col) =
-                    selection::mouse_pixel_to_cell(x as f32, y as f32, cw, ch, tabs.mouse_y_offset(drawer.tab_bar_height(), title_bar_height, screen_full));
+                    selection::mouse_pixel_to_cell(x as f32, y as f32, cw, ch, tabs.mouse_y_offset(drawer.tab_bar_height(), title_bar_height, has_scrollback));
                 let abs_row = if let Some(tab) = tabs.active_tab() {
                     let state = tab.terminal.lock().unwrap();
                     let base = state
@@ -746,7 +746,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                     let (cw, ch) = drawer.cell_size();
                     let (screen_row, col) = selection::mouse_pixel_to_cell(
                         x as f32, y as f32, cw, ch,
-                        tabs.mouse_y_offset(drawer.tab_bar_height(), title_bar_height, screen_full),
+                        tabs.mouse_y_offset(drawer.tab_bar_height(), title_bar_height, has_scrollback),
                     );
                     if let Some(tab) = tabs.active_tab() {
                         let state = tab.terminal.lock().unwrap();
@@ -1266,8 +1266,8 @@ fn render_with_tabs(drawer: &mut GpuDrawer, tabs: &TabManager, preedit: &str, se
         None
     };
 
-    let screen_full = scrollback_len > 0;
-    drawer.draw(&commands, scrollbar, tab_bar.as_ref(), is_break, break_text, transparent_tab_bar, screen_full, title_bar_height, header_opacity);
+    let has_scrollback = scrollback_len > 0;
+    drawer.draw(&commands, scrollbar, tab_bar.as_ref(), is_break, break_text, transparent_tab_bar, has_scrollback, title_bar_height, header_opacity);
 }
 
 #[cfg(test)]

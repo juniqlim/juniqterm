@@ -445,7 +445,7 @@ impl GpuDrawer {
         is_break: bool,
         break_text: Option<&[String]>,
         transparent_tab_bar: bool,
-        screen_full: bool,
+        has_scrollback: bool,
         title_bar_height: f32,
         header_opacity: f32,
     ) {
@@ -472,7 +472,7 @@ impl GpuDrawer {
         });
 
         let (cell_w, cell_h) = self.atlas.cell_size();
-        let y_off = if transparent_tab_bar && screen_full {
+        let y_off = if transparent_tab_bar && has_scrollback {
             0.0
         } else if tab_bar.is_none() {
             if transparent_tab_bar { title_bar_height } else { 0.0 }

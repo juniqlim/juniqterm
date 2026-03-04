@@ -42,17 +42,20 @@ pub struct TabBarInfo {
     pub active_index: usize,
 }
 
-/// Compute content Y offset — shared between renderer and mouse coordinate translation.
-/// Must match the renderer's y_off logic exactly.
-/// Returns true if the given y pixel coordinate falls within the tab bar region.
-pub fn hit_test_tab_bar(y: f32, tab_bar_h: f32, content_y_off: f32) -> bool {
-    let top = content_y_off - tab_bar_h;
-    y >= top && y < content_y_off
+/// Tab bar top Y position — independent of scrollback state.
+pub fn tab_bar_y_position(title_bar_h: f32) -> f32 {
+    title_bar_h
 }
 
-pub fn content_y_offset(show_tab_bar: bool, tab_bar_h: f32, title_bar_h: f32, screen_full: bool) -> f32 {
+/// Returns true if the given y pixel coordinate falls within the tab bar region.
+pub fn hit_test_tab_bar(y: f32, tab_bar_h: f32, tab_bar_y: f32) -> bool {
+    y >= tab_bar_y && y < tab_bar_y + tab_bar_h
+}
+
+/// Content Y offset for rendering — where terminal content starts.
+pub fn content_y_offset(show_tab_bar: bool, tab_bar_h: f32, title_bar_h: f32, has_scrollback: bool) -> f32 {
     let transparent = title_bar_h > 0.0;
-    if transparent && screen_full {
+    if transparent && has_scrollback {
         0.0
     } else if !show_tab_bar {
         if transparent { title_bar_h } else { 0.0 }
@@ -170,8 +173,12 @@ impl TabManager {
     }
 
     /// Y pixel offset for mouse events — mirrors renderer y_off logic.
-    pub fn mouse_y_offset(&self, tab_bar_h: f32, title_bar_h: f32, screen_full: bool) -> f32 {
-        content_y_offset(self.show_tab_bar(), tab_bar_h, title_bar_h, screen_full)
+    pub fn mouse_y_offset(&self, tab_bar_h: f32, title_bar_h: f32, has_scrollback: bool) -> f32 {
+        content_y_offset(self.show_tab_bar(), tab_bar_h, title_bar_h, has_scrollback)
+    }
+
+    pub fn tab_bar_y(&self, title_bar_h: f32) -> f32 {
+        tab_bar_y_position(title_bar_h)
     }
 
     pub fn move_tab(&mut self, from: usize, to: usize) {
@@ -865,6 +872,85 @@ mod tests {
     use super::*;
     use growterm_render_cmd::TerminalPalette;
 
+    const TAB_BAR_H: f32 = 38.0;
+    const TITLE_BAR_H: f32 = 56.0;
+
+    // --- content_y_offset tests ---
+
+    #[test]
+    fn content_y_offset_opaque_no_tab_bar() {
+        assert_eq!(content_y_offset(false, TAB_BAR_H, 0.0, false), 0.0);
+        assert_eq!(content_y_offset(false, TAB_BAR_H, 0.0, true), 0.0);
+    }
+
+    #[test]
+    fn content_y_offset_opaque_with_tab_bar() {
+        assert_eq!(content_y_offset(true, TAB_BAR_H, 0.0, false), TAB_BAR_H);
+        assert_eq!(content_y_offset(true, TAB_BAR_H, 0.0, true), TAB_BAR_H);
+    }
+
+    #[test]
+    fn content_y_offset_transparent_no_tab_bar_no_scrollback() {
+        assert_eq!(content_y_offset(false, TAB_BAR_H, TITLE_BAR_H, false), TITLE_BAR_H);
+    }
+
+    #[test]
+    fn content_y_offset_transparent_no_tab_bar_has_scrollback() {
+        // title bar 영역까지 콘텐츠로 채움
+        assert_eq!(content_y_offset(false, TAB_BAR_H, TITLE_BAR_H, true), 0.0);
+    }
+
+    #[test]
+    fn content_y_offset_transparent_with_tab_bar_no_scrollback() {
+        assert_eq!(content_y_offset(true, TAB_BAR_H, TITLE_BAR_H, false), TITLE_BAR_H + TAB_BAR_H);
+    }
+
+    #[test]
+    fn content_y_offset_transparent_with_tab_bar_has_scrollback() {
+        // 반투명: 콘텐츠가 title bar, tab bar 뒤로 비침
+        assert_eq!(content_y_offset(true, TAB_BAR_H, TITLE_BAR_H, true), 0.0);
+    }
+
+    // --- tab_bar_y_position tests ---
+
+    #[test]
+    fn tab_bar_y_opaque() {
+        assert_eq!(tab_bar_y_position(0.0), 0.0);
+    }
+
+    #[test]
+    fn tab_bar_y_transparent() {
+        assert_eq!(tab_bar_y_position(TITLE_BAR_H), TITLE_BAR_H);
+    }
+
+    // --- hit_test_tab_bar tests ---
+
+    #[test]
+    fn hit_test_opaque_tab_bar() {
+        let tab_y = tab_bar_y_position(0.0);
+        assert!(hit_test_tab_bar(0.0, TAB_BAR_H, tab_y));
+        assert!(hit_test_tab_bar(37.0, TAB_BAR_H, tab_y));
+        assert!(!hit_test_tab_bar(38.0, TAB_BAR_H, tab_y));
+    }
+
+    #[test]
+    fn hit_test_transparent_tab_bar() {
+        let tab_y = tab_bar_y_position(TITLE_BAR_H);
+        // 탭바는 title_bar_h ~ title_bar_h + tab_bar_h
+        assert!(!hit_test_tab_bar(55.0, TAB_BAR_H, tab_y));
+        assert!(hit_test_tab_bar(56.0, TAB_BAR_H, tab_y));
+        assert!(hit_test_tab_bar(93.0, TAB_BAR_H, tab_y));
+        assert!(!hit_test_tab_bar(94.0, TAB_BAR_H, tab_y));
+    }
+
+    #[test]
+    fn hit_test_transparent_tab_bar_with_scrollback() {
+        // scrollback 유무와 관계없이 탭바 위치는 동일
+        let tab_y = tab_bar_y_position(TITLE_BAR_H);
+        assert!(hit_test_tab_bar(60.0, TAB_BAR_H, tab_y));
+        assert!(hit_test_tab_bar(70.0, TAB_BAR_H, tab_y));
+    }
+
     fn test_palette() -> TerminalPalette {
         TerminalPalette {
             default_fg: growterm_types::Rgb::new(0x12, 0x34, 0x56),
@@ -1225,7 +1311,7 @@ mod tests {
     fn mouse_y_offset_title_bar_with_scrollback() {
         let mut mgr = TabManager::new();
         mgr.add_tab(dummy_tab());
-        // transparent mode, screen_full: title bar excluded (renderer uses y_off=0)
+        // transparent mode, has_scrollback: title bar excluded (renderer uses y_off=0)
         assert_eq!(mgr.mouse_y_offset(20.0, 50.0, true), 0.0);
     }
 
@@ -1242,35 +1328,10 @@ mod tests {
         let mut mgr = TabManager::new();
         mgr.add_tab(dummy_tab());
         mgr.add_tab(dummy_tab());
-        // transparent + screen_full: renderer uses y_off=0
+        // transparent + has_scrollback: renderer uses y_off=0
         assert_eq!(mgr.mouse_y_offset(30.0, 50.0, true), 0.0);
     }
 
-    #[test]
-    fn hit_test_tab_bar_normal_mode() {
-        // tab_bar_h=30, content_y_off=30 → tab bar occupies [0, 30)
-        assert!(hit_test_tab_bar(0.0, 30.0, 30.0));
-        assert!(hit_test_tab_bar(15.0, 30.0, 30.0));
-        assert!(hit_test_tab_bar(29.9, 30.0, 30.0));
-        assert!(!hit_test_tab_bar(30.0, 30.0, 30.0));
-    }
-
-    #[test]
-    fn hit_test_tab_bar_transparent_mode() {
-        // tab_bar_h=30, content_y_off=80 → tab bar occupies [50, 80)
-        assert!(!hit_test_tab_bar(0.0, 30.0, 80.0));
-        assert!(!hit_test_tab_bar(49.9, 30.0, 80.0));
-        assert!(hit_test_tab_bar(50.0, 30.0, 80.0));
-        assert!(hit_test_tab_bar(65.0, 30.0, 80.0));
-        assert!(hit_test_tab_bar(79.9, 30.0, 80.0));
-        assert!(!hit_test_tab_bar(80.0, 30.0, 80.0));
-    }
-
-    #[test]
-    fn hit_test_tab_bar_screen_full() {
-        // content_y_off=0 → tab bar at [-30, 0), no hit possible
-        assert!(!hit_test_tab_bar(0.0, 30.0, 0.0));
-    }
 
     #[test]
     fn move_tab_forward() {
