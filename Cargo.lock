@@ -738,6 +738,7 @@ dependencies = [
  "growterm-vt-parser",
  "pollster",
  "raw-window-handle",
+ "unicode-width 0.2.2",
  "wgpu",
  "winit",
 ]

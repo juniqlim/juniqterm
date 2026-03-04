@@ -12,6 +12,7 @@ bytemuck = { version = "1", features = ["derive"] }
 pollster = "0.4"
 core-text = "20"
 core-foundation = "0.9"
+unicode-width = "0.2"
 
 [[example]]
 name = "hardcoded_grid"

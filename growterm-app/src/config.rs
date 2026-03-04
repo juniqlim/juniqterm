@@ -17,6 +17,8 @@ pub struct Config {
     pub transparent_tab_bar: bool,
     #[serde(default = "default_header_opacity")]
     pub header_opacity: f32,
+    #[serde(default)]
+    pub coaching_command: Option<String>,
 }
 
 fn default_font_family() -> String {
@@ -45,6 +47,7 @@ impl Default for Config {
             coaching: true,
             transparent_tab_bar: false,
             header_opacity: default_header_opacity(),
+            coaching_command: None,
         }
     }
 }
@@ -110,14 +113,19 @@ impl Config {
             coaching: read_bool("coaching_enabled", true),
             transparent_tab_bar: read_bool("transparent_tab_bar", false),
             header_opacity: default_header_opacity(),
+            coaching_command: None,
         }
     }
 
     pub fn save(&self) {
         let dir = config_dir();
         let _ = std::fs::create_dir_all(&dir);
+        let coaching_cmd_line = match &self.coaching_command {
+            Some(cmd) => format!("coaching_command = {:?}\n", cmd),
+            None => String::new(),
+        };
         let content = format!(
-            "font_family = {:?}\nfont_size = {}\npomodoro = {}\nresponse_timer = {}\ncoaching = {}\ntransparent_tab_bar = {}\nheader_opacity = {}\n",
+            "font_family = {:?}\nfont_size = {}\npomodoro = {}\nresponse_timer = {}\ncoaching = {}\ntransparent_tab_bar = {}\nheader_opacity = {}\n{coaching_cmd_line}",
             self.font_family, self.font_size, self.pomodoro, self.response_timer, self.coaching, self.transparent_tab_bar, self.header_opacity,
         );
         let _ = std::fs::write(config_path(), content);
@@ -138,6 +146,7 @@ response_timer = false
 coaching = false
 transparent_tab_bar = true
 header_opacity = 0.5
+coaching_command = "claude -p --system 'You are a coach' '{prompt}'"
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert_eq!(config.font_family, "Menlo");
@@ -147,6 +156,16 @@ header_opacity = 0.5
         assert!(!config.coaching);
         assert!(config.transparent_tab_bar);
         assert_eq!(config.header_opacity, 0.5);
+        assert_eq!(
+            config.coaching_command,
+            Some("claude -p --system 'You are a coach' '{prompt}'".to_string())
+        );
+    }
+
+    #[test]
+    fn coaching_command_default_is_none() {
+        let config: Config = toml::from_str("").unwrap();
+        assert!(config.coaching_command.is_none());
     }
 
     #[test]

@@ -851,7 +851,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                         let tab_text = extract_pomodoro_tab_text(&tabs, &pomodoro);
                         if !tab_text.trim().is_empty() {
                             let ai_handle = pomodoro.ai_response_handle();
-                            crate::pomodoro::spawn_ai_coaching(tab_text, ai_handle);
+                            crate::pomodoro::spawn_ai_coaching(tab_text, ai_handle, config.coaching_command.clone());
                         } else {
                             pomodoro.set_ai_response(vec!["작업 내용을 캡처하지 못했습니다.".to_string()]);
                         }

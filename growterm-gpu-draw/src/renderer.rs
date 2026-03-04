@@ -1,6 +1,8 @@
 use growterm_types::{CellFlags, RenderCommand, Rgb};
 use wgpu::util::DeviceExt;
 
+use unicode_width::UnicodeWidthChar;
+
 use crate::atlas::GlyphAtlas;
 
 #[repr(C)]
@@ -933,21 +935,36 @@ impl GpuDrawer {
                 let tab_ascent = self.tab_atlas.ascent();
                 let line_spacing = tab_ch * 0.4;
 
-                // Word-wrap lines to fit screen width
+                // Helper: display width of a char (wide chars = 2)
+                let char_w = |c: char| -> usize {
+                    UnicodeWidthChar::width(c).unwrap_or(1)
+                };
+                let str_w = |s: &str| -> usize {
+                    s.chars().map(|c| char_w(c)).sum()
+                };
+
+                // Word-wrap lines to fit screen width (in cell units)
                 let pad = tab_ch; // padding around text
-                let max_chars = ((screen_w - pad * 4.0) / tab_cw).floor().max(10.0) as usize;
+                let max_cols = ((screen_w - pad * 4.0) / tab_cw).floor().max(10.0) as usize;
                 let wrapped: Vec<String> = lines.iter().flat_map(|line| {
                     if line.is_empty() {
                         return vec![String::new()];
                     }
-                    let chars: Vec<char> = line.chars().collect();
-                    if chars.len() <= max_chars {
+                    if str_w(line) <= max_cols {
                         return vec![line.clone()];
                     }
+                    let chars: Vec<char> = line.chars().collect();
                     let mut result = Vec::new();
                     let mut start = 0;
                     while start < chars.len() {
-                        let end = (start + max_chars).min(chars.len());
+                        let mut width = 0;
+                        let mut end = start;
+                        while end < chars.len() {
+                            let cw = char_w(chars[end]);
+                            if width + cw > max_cols { break; }
+                            width += cw;
+                            end += 1;
+                        }
                         if end == chars.len() {
                             result.push(chars[start..end].iter().collect());
                             break;
@@ -970,7 +987,7 @@ impl GpuDrawer {
                 let start_y = (screen_h - total_height) / 2.0;
 
                 // Background box behind coaching text
-                let max_line_w = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0) as f32 * tab_cw;
+                let max_line_w = lines.iter().map(|l| str_w(l)).max().unwrap_or(0) as f32 * tab_cw;
                 let bg_x = ((screen_w - max_line_w) / 2.0 - pad).max(0.0);
                 let bg_y = (start_y - pad).max(0.0);
                 let bg_w = (max_line_w + pad * 2.0).min(screen_w);
@@ -989,13 +1006,14 @@ impl GpuDrawer {
 
                 let mut coaching_verts: Vec<GlyphVertex> = Vec::new();
                 for (line_idx, line) in lines.iter().enumerate() {
-                    let text_w = line.chars().count() as f32 * tab_cw;
+                    let text_w = str_w(line) as f32 * tab_cw;
                     let mut cx = (screen_w - text_w) / 2.0;
                     let line_y = start_y + line_idx as f32 * (tab_ch + line_spacing);
 
                     for ch in line.chars() {
+                        let advance = tab_cw * char_w(ch) as f32;
                         if ch == ' ' {
-                            cx += tab_cw;
+                            cx += advance;
                             continue;
                         }
                         let region = self.ensure_tab_glyph_in_atlas(ch);
@@ -1037,7 +1055,7 @@ impl GpuDrawer {
                                 color,
                             });
                         }
-                        cx += tab_cw;
+                        cx += advance;
                     }
                 }
 

@@ -179,23 +179,41 @@ impl Pomodoro {
     }
 }
 
-/// Spawn a background thread that calls `claude -p` with the given prompt+text
-/// and writes the result into the shared `ai_response`.
+/// Spawn a background thread that calls the coaching command with tab_text via stdin.
+///
+/// If `coaching_command` is Some, it is executed as a shell command with tab_text piped to stdin.
+/// Otherwise the default `claude -p` with a built-in prompt is used.
 pub fn spawn_ai_coaching(
     tab_text: String,
     ai_response: Arc<Mutex<Option<Vec<String>>>>,
+    coaching_command: Option<String>,
 ) {
     std::thread::spawn(move || {
-        let prompt = format!(
-            "아래는 터미널에서 25분간 작업한 내용입니다. 탭별로 구분되어 있습니다.\n\
-             이 작업 과정을 보고 짧은 코칭 피드백을 한국어로 3-4문장 이내로 주세요.\n\
-             집중도, 문제 해결 방식, 개선할 점 위주로 피드백하세요.\n\n\
-             {tab_text}"
-        );
-        let claude_path = find_claude_path();
-        let result = std::process::Command::new(&claude_path)
-            .args(["-p", &prompt])
-            .output();
+        use std::io::Write;
+        let default_system = "아래는 터미널에서 25분간 작업한 내용입니다. 탭별로 구분되어 있습니다. \
+            이 작업 과정을 보고 짧은 코칭 피드백을 한국어로 3-4문장 이내로 주세요. \
+            집중도, 문제 해결 방식, 개선할 점 위주로 피드백하세요.";
+        let cmd = coaching_command.unwrap_or_else(|| {
+            let claude_path = find_claude_path();
+            format!("{claude_path} --system '{default_system}' -p")
+        });
+        let mut child = match std::process::Command::new("sh")
+            .args(["-c", &cmd])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(e) => {
+                *ai_response.lock().unwrap() = Some(vec![format!("AI 호출 실패: {e}")]);
+                return;
+            }
+        };
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(tab_text.as_bytes());
+        }
+        let result = child.wait_with_output();
         let lines = match result {
             Ok(output) => {
                 let text = String::from_utf8_lossy(&output.stdout);
