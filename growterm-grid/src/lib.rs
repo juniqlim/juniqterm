@@ -434,9 +434,9 @@ impl Grid {
         &self.scrollback
     }
 
-    pub fn visible_cells(&self) -> Vec<Vec<Cell>> {
+    pub fn visible_cells(&self) -> std::borrow::Cow<'_, Vec<Vec<Cell>>> {
         if self.scroll_offset == 0 {
-            return self.cells.clone();
+            return std::borrow::Cow::Borrowed(&self.cells);
         }
         let sb_len = self.scrollback.len();
         let sb_start = sb_len.saturating_sub(self.scroll_offset);
@@ -444,7 +444,7 @@ impl Grid {
         let screen_rows_needed = self.rows - result.len().min(self.rows);
         result.extend_from_slice(&self.cells[..screen_rows_needed]);
         result.truncate(self.rows);
-        result
+        std::borrow::Cow::Owned(result)
     }
 
     fn blank_cell(&self) -> Cell {
