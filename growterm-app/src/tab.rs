@@ -10,7 +10,9 @@ use growterm_render_cmd::TerminalPalette;
 use growterm_types::Rgb;
 use growterm_vt_parser::VtParser;
 
+use crate::copy_mode::CopyMode;
 use crate::response_timer::ResponseTimer;
+use crate::selection::Selection;
 
 pub struct Tab {
     pub id: u64,
@@ -22,6 +24,8 @@ pub struct Tab {
     pub response_timer: ResponseTimer,
     pub bracketed_paste: Arc<AtomicBool>,
     pub mouse_mode: Arc<AtomicU8>,
+    pub copy_mode: CopyMode,
+    pub selection: Selection,
 }
 
 pub struct TerminalState {
@@ -296,6 +300,8 @@ impl Tab {
             response_timer: ResponseTimer::new(),
             bracketed_paste,
             mouse_mode,
+            copy_mode: CopyMode::new(),
+            selection: Selection::default(),
         })
     }
 }
@@ -989,6 +995,8 @@ mod tests {
             response_timer: ResponseTimer::new(),
             bracketed_paste: Arc::new(AtomicBool::new(false)),
             mouse_mode: Arc::new(AtomicU8::new(0)),
+            copy_mode: CopyMode::new(),
+            selection: Selection::default(),
         }
     }
 

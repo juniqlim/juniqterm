@@ -57,15 +57,23 @@ fn resize_all_tabs(tabs: &mut TabManager, cols: u16, rows: u16) {
     }
 }
 
-/// Reset state when switching tabs: exit copy mode, clear selection & preedit.
-fn on_tab_switch(copy_mode: &mut CopyMode, sel: &mut Selection, preedit: &mut String, window: &MacWindow) {
-    if copy_mode.active {
-        copy_mode.exit(sel);
-        window.set_copy_mode(false);
+/// Save copy mode state to the current tab before switching away.
+fn save_tab_state(copy_mode: &mut CopyMode, sel: &mut Selection, tabs: &mut TabManager) {
+    if let Some(tab) = tabs.active_tab_mut() {
+        tab.copy_mode = copy_mode.clone();
+        tab.selection = *sel;
     }
-    sel.clear();
+}
+
+/// Restore copy mode state from the newly active tab after switching.
+fn restore_tab_state(copy_mode: &mut CopyMode, sel: &mut Selection, preedit: &mut String, window: &MacWindow, tabs: &TabManager) {
     preedit.clear();
     window.discard_marked_text();
+    if let Some(tab) = tabs.active_tab() {
+        *copy_mode = tab.copy_mode.clone();
+        *sel = tab.selection;
+        window.set_copy_mode(copy_mode.active);
+    }
 }
 
 /// Exit copy mode: clear selection, reset scroll, update window state.
@@ -258,12 +266,12 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                         match Tab::spawn_with_cwd(term_rows, cols, window.clone(), active_cwd.as_deref()) {
                             Ok(mut tab) => {
                                 tab.response_timer.set_enabled(response_timer_enabled);
+                                save_tab_state(&mut copy_mode, &mut sel, &mut tabs);
                                 tabs.add_tab(tab);
-                                if copy_mode.active {
-                                    copy_mode.exit(&mut sel);
-                                    window.set_copy_mode(false);
-                                }
-                                sel.clear();
+                                // New tab has no copy mode state, so reset
+                                copy_mode = CopyMode::new();
+                                sel = Selection::default();
+                                window.set_copy_mode(false);
                                 preedit.clear();
                                 window.discard_marked_text();
                                 // Tab bar just appeared — shrink existing tabs by 1 row
@@ -289,12 +297,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                         if tabs.is_empty() {
                             std::process::exit(0);
                         }
-                        if copy_mode.active {
-                            copy_mode.exit(&mut sel);
-                            window.set_copy_mode(false);
-                        }
-                        sel.clear();
-                        preedit.clear();
+                        restore_tab_state(&mut copy_mode, &mut sel, &mut preedit, &window, &tabs);
                         // Tab bar just disappeared — expand remaining tab by 1 row
                         if had_tab_bar && !tabs.show_tab_bar() {
                             let (cw, ch) = drawer.cell_size();
@@ -315,14 +318,16 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                     if modifiers.contains(Modifiers::SHIFT) {
                         // Cmd+Shift+R: reload config — 메뉴(reloadConfig:)로 처리됨
                         if keycode == kc::ANSI_LEFT_BRACKET {
+                            save_tab_state(&mut copy_mode, &mut sel, &mut tabs);
                             tabs.prev_tab();
-                            on_tab_switch(&mut copy_mode, &mut sel, &mut preedit, &window);
+                            restore_tab_state(&mut copy_mode, &mut sel, &mut preedit, &window, &tabs);
                             do_render!();
                             continue;
                         }
                         if keycode == kc::ANSI_RIGHT_BRACKET {
+                            save_tab_state(&mut copy_mode, &mut sel, &mut tabs);
                             tabs.next_tab();
-                            on_tab_switch(&mut copy_mode, &mut sel, &mut preedit, &window);
+                            restore_tab_state(&mut copy_mode, &mut sel, &mut preedit, &window, &tabs);
                             do_render!();
                             continue;
                         }
@@ -343,8 +348,9 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                     };
                     if let Some(idx) = tab_num {
                         if idx < tabs.tab_count() {
+                            save_tab_state(&mut copy_mode, &mut sel, &mut tabs);
                             tabs.switch_to(idx);
-                            on_tab_switch(&mut copy_mode, &mut sel, &mut preedit, &window);
+                            restore_tab_state(&mut copy_mode, &mut sel, &mut preedit, &window, &tabs);
                             do_render!();
                         }
                         continue;
@@ -704,9 +710,9 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                     let tab_w = screen_w / tabs.tab_count().max(1) as f32;
                     if drag_distance < tab_w * 0.3 {
                         // Small movement = click: switch to tab
+                        save_tab_state(&mut copy_mode, &mut sel, &mut tabs);
                         tabs.switch_to(drag_idx);
-                        preedit.clear();
-                        window.discard_marked_text();
+                        restore_tab_state(&mut copy_mode, &mut sel, &mut preedit, &window, &tabs);
                     }
                     window.request_redraw();
                     continue;

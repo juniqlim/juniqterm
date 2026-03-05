@@ -1,5 +1,6 @@
 use crate::selection::Selection;
 
+#[derive(Clone)]
 pub struct CopyMode {
     pub active: bool,
     /// true = 비주얼 모드 (v로 진입, j/k로 범위 확장)
