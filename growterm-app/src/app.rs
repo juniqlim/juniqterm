@@ -560,7 +560,8 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                     }
                     }
 
-                    do_render!();
+                    scrollbar_visible_until = Some(Instant::now() + SCROLLBAR_SHOW_DURATION);
+                    do_render!(scrollbar: true);
                     continue;
                 }
 
