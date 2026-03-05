@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use core_foundation::array::CFArray;
 use core_foundation::base::TCFType;
@@ -15,8 +16,8 @@ pub struct RasterizedGlyph {
 }
 
 pub struct GlyphAtlas {
-    font: fontdue::Font,
-    fallback_font: fontdue::Font,
+    font: Arc<fontdue::Font>,
+    fallback_font: Arc<fontdue::Font>,
     system_font_cache: HashMap<char, fontdue::Font>,
     size: f32,
     cache: HashMap<char, RasterizedGlyph>,
@@ -27,31 +28,12 @@ pub struct GlyphAtlas {
 
 impl GlyphAtlas {
     pub fn new(size: f32, font_path: Option<&str>) -> Self {
-        let font = if let Some(path) = font_path {
-            if let Ok(data) = std::fs::read(path) {
-                let settings = fontdue::FontSettings {
-                    scale: size,
-                    ..Default::default()
-                };
-                fontdue::Font::from_bytes(data, settings).unwrap_or_else(|_| {
-                    Self::load_builtin_font(size)
-                })
-            } else {
-                Self::load_builtin_font(size)
-            }
-        } else {
-            Self::load_builtin_font(size)
-        };
+        let font = Arc::new(Self::load_font(size, font_path));
+        let fallback_font = Arc::new(Self::load_fallback_font(size));
+        Self::with_shared_fonts(size, font, fallback_font)
+    }
 
-        let fallback_data = include_bytes!("../fonts/D2Coding.ttc");
-        let fallback_settings = fontdue::FontSettings {
-            scale: size,
-            collection_index: 0,
-            ..Default::default()
-        };
-        let fallback_font = fontdue::Font::from_bytes(fallback_data as &[u8], fallback_settings)
-            .expect("failed to load D2Coding fallback font");
-
+    pub fn with_shared_fonts(size: f32, font: Arc<fontdue::Font>, fallback_font: Arc<fontdue::Font>) -> Self {
         let metrics = font.metrics('M', size);
         let line_metrics = font.horizontal_line_metrics(size);
         let (cell_height, ascent) = match line_metrics {
@@ -71,7 +53,33 @@ impl GlyphAtlas {
         }
     }
 
-    fn load_builtin_font(size: f32) -> fontdue::Font {
+    pub fn load_font(size: f32, font_path: Option<&str>) -> fontdue::Font {
+        if let Some(path) = font_path {
+            if let Ok(data) = std::fs::read(path) {
+                let settings = fontdue::FontSettings {
+                    scale: size,
+                    ..Default::default()
+                };
+                return fontdue::Font::from_bytes(data, settings).unwrap_or_else(|_| {
+                    Self::load_builtin_font(size)
+                });
+            }
+        }
+        Self::load_builtin_font(size)
+    }
+
+    pub fn load_fallback_font(size: f32) -> fontdue::Font {
+        let fallback_data = include_bytes!("../fonts/D2Coding.ttc");
+        let fallback_settings = fontdue::FontSettings {
+            scale: size,
+            collection_index: 0,
+            ..Default::default()
+        };
+        fontdue::Font::from_bytes(fallback_data as &[u8], fallback_settings)
+            .expect("failed to load D2Coding fallback font")
+    }
+
+    pub fn load_builtin_font(size: f32) -> fontdue::Font {
         let font_data = include_bytes!("../fonts/FiraCodeNerdFontMono-Retina.ttf");
         let settings = fontdue::FontSettings {
             scale: size,
@@ -82,21 +90,7 @@ impl GlyphAtlas {
     }
 
     pub fn set_font(&mut self, font_path: Option<&str>, size: f32) {
-        self.font = if let Some(path) = font_path {
-            if let Ok(data) = std::fs::read(path) {
-                let settings = fontdue::FontSettings {
-                    scale: size,
-                    ..Default::default()
-                };
-                fontdue::Font::from_bytes(data, settings).unwrap_or_else(|_| {
-                    Self::load_builtin_font(size)
-                })
-            } else {
-                Self::load_builtin_font(size)
-            }
-        } else {
-            Self::load_builtin_font(size)
-        };
+        self.font = Arc::new(Self::load_font(size, font_path));
         self.size = size;
         self.cache.clear();
         self.system_font_cache.clear();
@@ -190,7 +184,7 @@ impl GlyphAtlas {
 
     pub fn get_or_insert(&mut self, c: char) -> &RasterizedGlyph {
         if !self.cache.contains_key(&c) {
-            let font_ref: *const fontdue::Font = if self.font.lookup_glyph_index(c) != 0 {
+            let font: &fontdue::Font = if self.font.lookup_glyph_index(c) != 0 {
                 &self.font
             } else if self.fallback_font.lookup_glyph_index(c) != 0 {
                 &self.fallback_font
@@ -200,7 +194,6 @@ impl GlyphAtlas {
                 &self.font
             };
 
-            let font = unsafe { &*font_ref };
             let (metrics, bitmap) = font.rasterize(c, self.size);
             self.cache.insert(c, RasterizedGlyph {
                 width: metrics.width as u32,

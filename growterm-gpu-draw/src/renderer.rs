@@ -382,8 +382,10 @@ impl GpuDrawer {
             cache: None,
         });
 
-        let atlas = GlyphAtlas::new(font_size, font_path);
-        let tab_atlas = GlyphAtlas::new(TAB_FONT_SIZE, None);
+        let font = std::sync::Arc::new(GlyphAtlas::load_font(font_size, font_path));
+        let fallback_font = std::sync::Arc::new(GlyphAtlas::load_fallback_font(font_size));
+        let atlas = GlyphAtlas::with_shared_fonts(font_size, font, fallback_font.clone());
+        let tab_atlas = GlyphAtlas::with_shared_fonts(TAB_FONT_SIZE, std::sync::Arc::new(GlyphAtlas::load_builtin_font(TAB_FONT_SIZE)), fallback_font);
 
         Self {
             device,
