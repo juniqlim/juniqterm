@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use core_foundation::array::CFArray;
@@ -18,7 +19,8 @@ pub struct RasterizedGlyph {
 pub struct GlyphAtlas {
     font: Arc<fontdue::Font>,
     fallback_font: Arc<fontdue::Font>,
-    system_font_cache: HashMap<char, fontdue::Font>,
+    system_font_cache: HashMap<PathBuf, fontdue::Font>,
+    char_to_font_path: HashMap<char, PathBuf>,
     size: f32,
     cache: HashMap<char, RasterizedGlyph>,
     cell_width: f32,
@@ -45,6 +47,7 @@ impl GlyphAtlas {
             font,
             fallback_font,
             system_font_cache: HashMap::new(),
+            char_to_font_path: HashMap::new(),
             size,
             cache: HashMap::new(),
             cell_width: metrics.advance_width.ceil(),
@@ -94,6 +97,7 @@ impl GlyphAtlas {
         self.size = size;
         self.cache.clear();
         self.system_font_cache.clear();
+        self.char_to_font_path.clear();
         let metrics = self.font.metrics('M', size);
         let line_metrics = self.font.horizontal_line_metrics(size);
         match line_metrics {
@@ -107,6 +111,7 @@ impl GlyphAtlas {
         self.size = size;
         self.cache.clear();
         self.system_font_cache.clear();
+        self.char_to_font_path.clear();
 
         let metrics = self.font.metrics('M', size);
         let line_metrics = self.font.horizontal_line_metrics(size);
@@ -126,8 +131,16 @@ impl GlyphAtlas {
     }
 
     fn find_system_font(&mut self, c: char) -> bool {
-        if self.system_font_cache.contains_key(&c) {
+        if self.char_to_font_path.contains_key(&c) {
             return true;
+        }
+
+        // Check if any already-cached font has this glyph
+        for (path, font) in &self.system_font_cache {
+            if font.lookup_glyph_index(c) != 0 {
+                self.char_to_font_path.insert(c, path.clone());
+                return true;
+            }
         }
 
         let base = ct_font::new_from_name("Helvetica", self.size as f64)
@@ -163,6 +176,15 @@ impl GlyphAtlas {
             if found && glyph_buf[0] != 0 {
                 if let Some(url) = candidate.url() {
                     if let Some(path) = url.to_path() {
+                        let path_buf = path.to_path_buf();
+                        // Reuse already-loaded font for this path
+                        if let Some(font) = self.system_font_cache.get(&path_buf) {
+                            if font.lookup_glyph_index(c) != 0 {
+                                self.char_to_font_path.insert(c, path_buf);
+                                return true;
+                            }
+                            continue;
+                        }
                         if let Ok(data) = std::fs::read(&path) {
                             let settings = fontdue::FontSettings {
                                 scale: self.size,
@@ -170,7 +192,8 @@ impl GlyphAtlas {
                             };
                             if let Ok(font) = fontdue::Font::from_bytes(data, settings) {
                                 if font.lookup_glyph_index(c) != 0 {
-                                    self.system_font_cache.insert(c, font);
+                                    self.char_to_font_path.insert(c, path_buf.clone());
+                                    self.system_font_cache.insert(path_buf, font);
                                     return true;
                                 }
                             }
@@ -184,12 +207,21 @@ impl GlyphAtlas {
 
     pub fn get_or_insert(&mut self, c: char) -> &RasterizedGlyph {
         if !self.cache.contains_key(&c) {
+            // find_system_font borrows &mut self, so call it before taking &self refs
+            let system_font_path = if self.font.lookup_glyph_index(c) != 0 || self.fallback_font.lookup_glyph_index(c) != 0 {
+                None
+            } else if self.find_system_font(c) {
+                Some(self.char_to_font_path.get(&c).unwrap().clone())
+            } else {
+                None
+            };
+
             let font: &fontdue::Font = if self.font.lookup_glyph_index(c) != 0 {
                 &self.font
             } else if self.fallback_font.lookup_glyph_index(c) != 0 {
                 &self.fallback_font
-            } else if self.find_system_font(c) {
-                self.system_font_cache.get(&c).unwrap()
+            } else if let Some(ref path) = system_font_path {
+                self.system_font_cache.get(path).unwrap()
             } else {
                 &self.font
             };
