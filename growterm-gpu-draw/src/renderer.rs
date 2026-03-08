@@ -515,9 +515,8 @@ impl GpuDrawer {
         });
 
         let (cell_w, cell_h) = self.atlas.cell_size();
-        let y_off = if transparent_tab_bar && has_scrollback {
-            0.0
-        } else if tab_bar.is_none() {
+        let _ = has_scrollback;
+        let y_off = if tab_bar.is_none() {
             if transparent_tab_bar { title_bar_height } else { 0.0 }
         } else if transparent_tab_bar {
             title_bar_height + self.tab_bar_height()

@@ -58,10 +58,9 @@ pub fn hit_test_tab_bar(y: f32, tab_bar_h: f32, tab_bar_y: f32) -> bool {
 
 /// Content Y offset for rendering — where terminal content starts.
 pub fn content_y_offset(show_tab_bar: bool, tab_bar_h: f32, title_bar_h: f32, has_scrollback: bool) -> f32 {
+    let _ = has_scrollback;
     let transparent = title_bar_h > 0.0;
-    if transparent && has_scrollback {
-        0.0
-    } else if !show_tab_bar {
+    if !show_tab_bar {
         if transparent { title_bar_h } else { 0.0 }
     } else if transparent {
         title_bar_h + tab_bar_h
@@ -902,8 +901,7 @@ mod tests {
 
     #[test]
     fn content_y_offset_transparent_no_tab_bar_has_scrollback() {
-        // title bar 영역까지 콘텐츠로 채움
-        assert_eq!(content_y_offset(false, TAB_BAR_H, TITLE_BAR_H, true), 0.0);
+        assert_eq!(content_y_offset(false, TAB_BAR_H, TITLE_BAR_H, true), TITLE_BAR_H);
     }
 
     #[test]
@@ -913,8 +911,7 @@ mod tests {
 
     #[test]
     fn content_y_offset_transparent_with_tab_bar_has_scrollback() {
-        // 반투명: 콘텐츠가 title bar, tab bar 뒤로 비침
-        assert_eq!(content_y_offset(true, TAB_BAR_H, TITLE_BAR_H, true), 0.0);
+        assert_eq!(content_y_offset(true, TAB_BAR_H, TITLE_BAR_H, true), TITLE_BAR_H + TAB_BAR_H);
     }
 
     // --- tab_bar_y_position tests ---
@@ -1333,8 +1330,7 @@ mod tests {
     fn mouse_y_offset_title_bar_with_scrollback() {
         let mut mgr = TabManager::new();
         mgr.add_tab(dummy_tab());
-        // transparent mode, has_scrollback: title bar excluded (renderer uses y_off=0)
-        assert_eq!(mgr.mouse_y_offset(20.0, 50.0, true), 0.0);
+        assert_eq!(mgr.mouse_y_offset(20.0, 50.0, true), 50.0);
     }
 
     #[test]
@@ -1350,8 +1346,7 @@ mod tests {
         let mut mgr = TabManager::new();
         mgr.add_tab(dummy_tab());
         mgr.add_tab(dummy_tab());
-        // transparent + has_scrollback: renderer uses y_off=0
-        assert_eq!(mgr.mouse_y_offset(30.0, 50.0, true), 0.0);
+        assert_eq!(mgr.mouse_y_offset(30.0, 50.0, true), 80.0);
     }
 
 
