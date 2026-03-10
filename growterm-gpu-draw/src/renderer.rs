@@ -82,6 +82,22 @@ struct GlyphRegion {
 const GLYPH_TEXTURE_SIZE: u32 = 1024;
 /// Maximum number of new glyphs to rasterize per frame to avoid UI freezes.
 const MAX_NEW_GLYPHS_PER_FRAME: u32 = 16;
+
+fn preferred_surface_alpha_mode(
+    available: &[wgpu::CompositeAlphaMode],
+) -> wgpu::CompositeAlphaMode {
+    [
+        wgpu::CompositeAlphaMode::PostMultiplied,
+        wgpu::CompositeAlphaMode::PreMultiplied,
+        wgpu::CompositeAlphaMode::Inherit,
+        wgpu::CompositeAlphaMode::Opaque,
+    ]
+    .into_iter()
+    .find(|candidate| available.contains(candidate))
+    .or_else(|| available.first().copied())
+    .unwrap_or(wgpu::CompositeAlphaMode::Opaque)
+}
+
 /// Push a textured quad (2 triangles, 6 vertices) for a glyph.
 fn push_glyph_quad(
     verts: &mut Vec<GlyphVertex>,
@@ -163,7 +179,7 @@ impl GpuDrawer {
             width: width.max(1),
             height: height.max(1),
             present_mode: wgpu::PresentMode::Fifo,
-            alpha_mode: surface_caps.alpha_modes[0],
+            alpha_mode: preferred_surface_alpha_mode(&surface_caps.alpha_modes),
             view_formats,
             desired_maximum_frame_latency: 2,
         };
@@ -515,8 +531,12 @@ impl GpuDrawer {
         });
 
         let (cell_w, cell_h) = self.atlas.cell_size();
-        let _ = has_scrollback;
-        let y_off = if tab_bar.is_none() {
+        // When transparent and screen is full (has_scrollback), draw from y=0
+        // so content shows behind the semi-transparent tab/title bar overlay.
+        // Before the screen fills up, offset content below the header.
+        let y_off = if transparent_tab_bar && has_scrollback {
+            0.0
+        } else if tab_bar.is_none() {
             if transparent_tab_bar { title_bar_height } else { 0.0 }
         } else if transparent_tab_bar {
             title_bar_height + self.tab_bar_height()
@@ -1485,4 +1505,26 @@ mod tests {
 
         assert_eq!(order, vec![2]);
     }
+
+    #[test]
+    fn preferred_surface_alpha_mode_uses_postmultiplied_when_available() {
+        let available = [
+            wgpu::CompositeAlphaMode::Opaque,
+            wgpu::CompositeAlphaMode::PostMultiplied,
+        ];
+
+        let mode = preferred_surface_alpha_mode(&available);
+
+        assert_eq!(mode, wgpu::CompositeAlphaMode::PostMultiplied);
+    }
+
+    #[test]
+    fn preferred_surface_alpha_mode_falls_back_to_first_available_mode() {
+        let available = [wgpu::CompositeAlphaMode::Opaque];
+
+        let mode = preferred_surface_alpha_mode(&available);
+
+        assert_eq!(mode, wgpu::CompositeAlphaMode::Opaque);
+    }
+
 }
