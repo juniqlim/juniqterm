@@ -81,7 +81,7 @@ struct GlyphRegion {
 
 const GLYPH_TEXTURE_SIZE: u32 = 1024;
 /// Maximum number of new glyphs to rasterize per frame to avoid UI freezes.
-const MAX_NEW_GLYPHS_PER_FRAME: u32 = 16;
+const MAX_NEW_GLYPHS_PER_FRAME: u32 = 256;
 
 fn preferred_surface_alpha_mode(
     available: &[wgpu::CompositeAlphaMode],
@@ -97,7 +97,6 @@ fn preferred_surface_alpha_mode(
     .or_else(|| available.first().copied())
     .unwrap_or(wgpu::CompositeAlphaMode::Opaque)
 }
-
 /// Push a textured quad (2 triangles, 6 vertices) for a glyph.
 fn push_glyph_quad(
     verts: &mut Vec<GlyphVertex>,
