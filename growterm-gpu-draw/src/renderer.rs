@@ -577,6 +577,14 @@ impl GpuDrawer {
                 let fg_color = rgb_to_f32a(cmd.fg);
                 push_bg_rect(&mut bg_vertices, x, underline_y, w, underline_h, fg_color);
             }
+
+            // Strikethrough: thin rect at cell vertical center using fg color
+            if cmd.flags.contains(CellFlags::STRIKETHROUGH) {
+                let strike_h = (cell_h * 0.07).max(1.0);
+                let strike_y = y + (cell_h - strike_h) / 2.0;
+                let fg_color = rgb_to_f32a(cmd.fg);
+                push_bg_rect(&mut bg_vertices, x, strike_y, w, strike_h, fg_color);
+            }
         }
 
         // Build glyph vertices
