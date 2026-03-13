@@ -60,7 +60,7 @@ pub struct GpuDrawer {
     atlas_cursor_x: u32,
     atlas_cursor_y: u32,
     atlas_row_height: u32,
-    glyph_regions: std::collections::HashMap<char, GlyphRegion>,
+    glyph_regions: std::collections::HashMap<(char, bool), GlyphRegion>,
     tab_glyph_regions: std::collections::HashMap<char, GlyphRegion>,
     surface_dirty: bool,
     new_glyphs_this_frame: u32,
@@ -417,8 +417,12 @@ impl GpuDrawer {
 
         let font = std::sync::Arc::new(GlyphAtlas::load_font(font_size, font_path));
         let fallback_font = std::sync::Arc::new(GlyphAtlas::load_fallback_font(font_size));
-        let atlas = GlyphAtlas::with_shared_fonts(font_size, font, fallback_font.clone());
-        let tab_atlas = GlyphAtlas::with_shared_fonts(TAB_FONT_SIZE, std::sync::Arc::new(GlyphAtlas::load_builtin_font(TAB_FONT_SIZE)), fallback_font);
+        let bold_font = std::sync::Arc::new(GlyphAtlas::load_builtin_bold_font(font_size));
+        let bold_fallback_font = std::sync::Arc::new(GlyphAtlas::load_fallback_bold_font(font_size));
+        let atlas = GlyphAtlas::with_shared_fonts(font_size, font, fallback_font.clone(), bold_font, bold_fallback_font.clone());
+        let tab_bold_font = std::sync::Arc::new(GlyphAtlas::load_builtin_bold_font(TAB_FONT_SIZE));
+        let tab_bold_fallback = std::sync::Arc::new(GlyphAtlas::load_fallback_bold_font(TAB_FONT_SIZE));
+        let tab_atlas = GlyphAtlas::with_shared_fonts(TAB_FONT_SIZE, std::sync::Arc::new(GlyphAtlas::load_builtin_font(TAB_FONT_SIZE)), fallback_font, tab_bold_font, tab_bold_fallback);
 
         Self {
             device,
@@ -601,7 +605,8 @@ impl GpuDrawer {
             if ch >= '\u{2580}' && ch <= '\u{259F}' && !(ch >= '\u{2591}' && ch <= '\u{2593}') {
                 continue;
             }
-            let _ = self.ensure_glyph_in_atlas(ch);
+            let bold = cmd.flags.contains(growterm_types::CellFlags::BOLD);
+            let _ = self.ensure_glyph_in_atlas(ch, bold);
         }
 
         // Helper: push a fg-colored rectangle into bg_vertices
@@ -744,7 +749,8 @@ impl GpuDrawer {
                 }
             }
 
-            let region = self.ensure_glyph_in_atlas(cmd.character);
+            let bold = cmd.flags.contains(growterm_types::CellFlags::BOLD);
+            let region = self.ensure_glyph_in_atlas(cmd.character, bold);
             if region.width == 0 || region.height == 0 {
                 continue;
             }
@@ -1155,8 +1161,9 @@ impl GpuDrawer {
         region
     }
 
-    fn ensure_glyph_in_atlas(&mut self, c: char) -> GlyphRegion {
-        if let Some(&region) = self.glyph_regions.get(&c) {
+    fn ensure_glyph_in_atlas(&mut self, c: char, bold: bool) -> GlyphRegion {
+        let cache_key = (c, bold);
+        if let Some(&region) = self.glyph_regions.get(&cache_key) {
             return region;
         }
 
@@ -1175,7 +1182,11 @@ impl GpuDrawer {
         }
         self.new_glyphs_this_frame += 1;
 
-        let glyph = self.atlas.get_or_insert(c);
+        let glyph = if bold {
+            self.atlas.get_or_insert_bold(c)
+        } else {
+            self.atlas.get_or_insert(c)
+        };
         let w = glyph.width;
         let h = glyph.height;
 
@@ -1190,7 +1201,7 @@ impl GpuDrawer {
                 offset_x: 0.0,
                 offset_y: 0.0,
             };
-            self.glyph_regions.insert(c, region);
+            self.glyph_regions.insert(cache_key, region);
             return region;
         }
 
@@ -1238,7 +1249,7 @@ impl GpuDrawer {
             offset_x: glyph.offset_x,
             offset_y: glyph.offset_y,
         };
-        self.glyph_regions.insert(c, region);
+        self.glyph_regions.insert(cache_key, region);
         region
     }
 }

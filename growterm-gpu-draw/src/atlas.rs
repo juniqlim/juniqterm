@@ -22,10 +22,13 @@ pub struct RasterizedGlyph {
 pub struct GlyphAtlas {
     font: Arc<fontdue::Font>,
     fallback_font: Arc<fontdue::Font>,
+    bold_font: Arc<fontdue::Font>,
+    bold_fallback_font: Arc<fontdue::Font>,
     system_font_cache: HashMap<PathBuf, fontdue::Font>,
     char_to_font_path: HashMap<char, PathBuf>,
     size: f32,
     cache: HashMap<char, RasterizedGlyph>,
+    bold_cache: HashMap<char, RasterizedGlyph>,
     cell_width: f32,
     cell_height: f32,
     ascent: f32,
@@ -35,10 +38,12 @@ impl GlyphAtlas {
     pub fn new(size: f32, font_path: Option<&str>) -> Self {
         let font = Arc::new(Self::load_font(size, font_path));
         let fallback_font = Arc::new(Self::load_fallback_font(size));
-        Self::with_shared_fonts(size, font, fallback_font)
+        let bold_font = Arc::new(Self::load_builtin_bold_font(size));
+        let bold_fallback_font = Arc::new(Self::load_fallback_bold_font(size));
+        Self::with_shared_fonts(size, font, fallback_font, bold_font, bold_fallback_font)
     }
 
-    pub fn with_shared_fonts(size: f32, font: Arc<fontdue::Font>, fallback_font: Arc<fontdue::Font>) -> Self {
+    pub fn with_shared_fonts(size: f32, font: Arc<fontdue::Font>, fallback_font: Arc<fontdue::Font>, bold_font: Arc<fontdue::Font>, bold_fallback_font: Arc<fontdue::Font>) -> Self {
         let metrics = font.metrics('M', size);
         let line_metrics = font.horizontal_line_metrics(size);
         let (cell_height, ascent) = match line_metrics {
@@ -49,10 +54,13 @@ impl GlyphAtlas {
         Self {
             font,
             fallback_font,
+            bold_font,
+            bold_fallback_font,
             system_font_cache: HashMap::new(),
             char_to_font_path: HashMap::new(),
             size,
             cache: HashMap::new(),
+            bold_cache: HashMap::new(),
             cell_width: metrics.advance_width.ceil(),
             cell_height: cell_height.ceil(),
             ascent,
@@ -95,10 +103,31 @@ impl GlyphAtlas {
             .expect("failed to load Fira Code Nerd Font")
     }
 
+    pub fn load_builtin_bold_font(size: f32) -> fontdue::Font {
+        let font_data = include_bytes!("../fonts/FiraCodeNerdFontMono-Bold.ttf");
+        let settings = fontdue::FontSettings {
+            scale: size,
+            ..Default::default()
+        };
+        fontdue::Font::from_bytes(font_data as &[u8], settings)
+            .expect("failed to load Fira Code Nerd Font Bold")
+    }
+
+    pub fn load_fallback_bold_font(size: f32) -> fontdue::Font {
+        let fallback_data = include_bytes!("../fonts/D2CodingBold.ttf");
+        let settings = fontdue::FontSettings {
+            scale: size,
+            ..Default::default()
+        };
+        fontdue::Font::from_bytes(fallback_data as &[u8], settings)
+            .expect("failed to load D2Coding Bold fallback font")
+    }
+
     pub fn set_font(&mut self, font_path: Option<&str>, size: f32) {
         self.font = Arc::new(Self::load_font(size, font_path));
         self.size = size;
         self.cache.clear();
+        self.bold_cache.clear();
         self.system_font_cache.clear();
         self.char_to_font_path.clear();
         let metrics = self.font.metrics('M', size);
@@ -113,6 +142,7 @@ impl GlyphAtlas {
     pub fn set_size(&mut self, size: f32) {
         self.size = size;
         self.cache.clear();
+        self.bold_cache.clear();
         self.system_font_cache.clear();
         self.char_to_font_path.clear();
 
@@ -256,5 +286,75 @@ impl GlyphAtlas {
             });
         }
         self.cache.get(&c).unwrap()
+    }
+
+    pub fn get_or_insert_bold(&mut self, c: char) -> &RasterizedGlyph {
+        if !self.bold_cache.contains_key(&c) {
+            let font: &fontdue::Font = if self.bold_font.lookup_glyph_index(c) != 0 {
+                &self.bold_font
+            } else if self.bold_fallback_font.lookup_glyph_index(c) != 0 {
+                &self.bold_fallback_font
+            } else if self.font.lookup_glyph_index(c) != 0 {
+                // Fallback to normal font if no bold variant has this glyph
+                &self.font
+            } else if self.fallback_font.lookup_glyph_index(c) != 0 {
+                &self.fallback_font
+            } else {
+                &self.font
+            };
+
+            let (metrics, bitmap) = font.rasterize(c, self.size);
+            self.bold_cache.insert(c, RasterizedGlyph {
+                width: metrics.width as u32,
+                height: metrics.height as u32,
+                bitmap,
+                offset_x: metrics.xmin as f32,
+                offset_y: metrics.ymin as f32,
+            });
+        }
+        self.bold_cache.get(&c).unwrap()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bold_glyph_differs_from_normal() {
+        let size = 16.0;
+        let normal_font = GlyphAtlas::load_builtin_font(size);
+        let bold_font = GlyphAtlas::load_builtin_bold_font(size);
+
+        let (_, normal_bitmap) = normal_font.rasterize('A', size);
+        let (_, bold_bitmap) = bold_font.rasterize('A', size);
+
+        assert_ne!(normal_bitmap, bold_bitmap, "Bold glyph should differ from normal");
+    }
+
+    #[test]
+    fn bold_fallback_glyph_differs_from_normal() {
+        let size = 16.0;
+        let normal_font = GlyphAtlas::load_fallback_font(size);
+        let bold_font = GlyphAtlas::load_fallback_bold_font(size);
+
+        let (_, normal_bitmap) = normal_font.rasterize('가', size);
+        let (_, bold_bitmap) = bold_font.rasterize('가', size);
+
+        assert_ne!(normal_bitmap, bold_bitmap, "Bold Korean glyph should differ from normal");
+    }
+
+    #[test]
+    fn get_or_insert_bold_returns_different_glyph() {
+        let size = 16.0;
+        let mut atlas = GlyphAtlas::new(size, None);
+
+        let normal = atlas.get_or_insert('A');
+        let normal_bitmap = normal.bitmap.clone();
+
+        let bold = atlas.get_or_insert_bold('A');
+        let bold_bitmap = bold.bitmap.clone();
+
+        assert_ne!(normal_bitmap, bold_bitmap, "Bold cached glyph should differ from normal");
     }
 }
