@@ -5,7 +5,6 @@ use unicode_width::UnicodeWidthChar;
 
 use crate::atlas::GlyphAtlas;
 
-use std::io::Write;
 use std::sync::Mutex;
 pub static GLYPH_LOG: std::sync::LazyLock<Mutex<Option<std::fs::File>>> = std::sync::LazyLock::new(|| {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
@@ -63,8 +62,6 @@ pub struct GpuDrawer {
     glyph_regions: std::collections::HashMap<(char, bool), GlyphRegion>,
     tab_glyph_regions: std::collections::HashMap<char, GlyphRegion>,
     surface_dirty: bool,
-    new_glyphs_this_frame: u32,
-    glyph_budget_exceeded: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -80,8 +77,6 @@ struct GlyphRegion {
 }
 
 const GLYPH_TEXTURE_SIZE: u32 = 1024;
-/// Maximum number of new glyphs to rasterize per frame to avoid UI freezes.
-const MAX_NEW_GLYPHS_PER_FRAME: u32 = 256;
 
 fn preferred_surface_alpha_mode(
     available: &[wgpu::CompositeAlphaMode],
@@ -446,8 +441,6 @@ impl GpuDrawer {
             glyph_regions: std::collections::HashMap::new(),
             tab_glyph_regions: std::collections::HashMap::new(),
             surface_dirty: false,
-            new_glyphs_this_frame: 0,
-            glyph_budget_exceeded: false,
         }
     }
 
@@ -507,10 +500,7 @@ impl GpuDrawer {
         content_y_offset: f32,
         title_bar_height: f32,
         header_opacity: f32,
-    ) -> bool {
-        self.new_glyphs_this_frame = 0;
-        self.glyph_budget_exceeded = false;
-
+    ) {
         if self.surface_dirty {
             self.surface_dirty = false;
             self.surface.configure(&self.device, &self.surface_config);
@@ -526,7 +516,7 @@ impl GpuDrawer {
         }
         let output = match self.surface.get_current_texture() {
             Ok(t) => t,
-            Err(_) => return false,
+            Err(_) => return,
         };
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor {
             format: Some(self.render_format),
@@ -1092,23 +1082,12 @@ impl GpuDrawer {
 
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
-        self.glyph_budget_exceeded
     }
 
     fn ensure_tab_glyph_in_atlas(&mut self, c: char) -> GlyphRegion {
         if let Some(&region) = self.tab_glyph_regions.get(&c) {
             return region;
         }
-
-        // Apply the same per-frame glyph budget as ensure_glyph_in_atlas.
-        if self.new_glyphs_this_frame >= MAX_NEW_GLYPHS_PER_FRAME {
-            self.glyph_budget_exceeded = true;
-            return GlyphRegion {
-                u0: 0.0, v0: 0.0, u1: 0.0, v1: 0.0,
-                width: 0, height: 0, offset_x: 0.0, offset_y: 0.0,
-            };
-        }
-        self.new_glyphs_this_frame += 1;
 
         let glyph = self.tab_atlas.get_or_insert(c);
         let w = glyph.width;
@@ -1166,21 +1145,6 @@ impl GpuDrawer {
         if let Some(&region) = self.glyph_regions.get(&cache_key) {
             return region;
         }
-
-        // Limit new glyph rasterization per frame to avoid UI freezes.
-        if self.new_glyphs_this_frame >= MAX_NEW_GLYPHS_PER_FRAME {
-            self.glyph_budget_exceeded = true;
-            if let Ok(mut guard) = GLYPH_LOG.lock() {
-                if let Some(f) = guard.as_mut() {
-                    let _ = writeln!(f, "[glyph-budget] deferred '{}' (U+{:04X})", c, c as u32);
-                }
-            }
-            return GlyphRegion {
-                u0: 0.0, v0: 0.0, u1: 0.0, v1: 0.0,
-                width: 0, height: 0, offset_x: 0.0, offset_y: 0.0,
-            };
-        }
-        self.new_glyphs_this_frame += 1;
 
         let glyph = if bold {
             self.atlas.get_or_insert_bold(c)

@@ -190,10 +190,9 @@ impl TabManager {
     }
 
     /// Terminal rows adjusted for title/tab bar offsets.
-    /// In transparent mode, use full screen height (no title bar subtraction)
-    /// so content fills the entire screen when drawn from y=0.
-    pub fn term_rows(&self, screen_h: u32, cell_h: f32, tab_bar_h: f32, title_bar_h: f32, has_scrollback: bool) -> u16 {
-        let y_off = content_y_offset(self.show_tab_bar(), tab_bar_h, title_bar_h, has_scrollback);
+    /// Always uses has_scrollback=false so PTY row count stays stable.
+    pub fn term_rows(&self, screen_h: u32, cell_h: f32, tab_bar_h: f32, title_bar_h: f32) -> u16 {
+        let y_off = content_y_offset(self.show_tab_bar(), tab_bar_h, title_bar_h, false);
         ((screen_h as f32 - y_off) / cell_h).floor().max(1.0) as u16
     }
 
@@ -1399,41 +1398,34 @@ mod tests {
     fn term_rows_opaque_without_tab_bar() {
         let mut mgr = TabManager::new();
         mgr.add_tab(dummy_tab());
-        assert_eq!(mgr.term_rows(600, 20.0, 30.0, 0.0, false), 30);
+        // 600 / 20 = 30
+        assert_eq!(mgr.term_rows(600, 20.0, 30.0, 0.0), 30);
     }
 
     #[test]
-    fn term_rows_transparent_no_scrollback() {
+    fn term_rows_opaque_with_tab_bar() {
         let mut mgr = TabManager::new();
         mgr.add_tab(dummy_tab());
-        // No scrollback: title_bar subtracted, (600 - 60) / 20 = 27
-        assert_eq!(mgr.term_rows(600, 20.0, 30.0, 60.0, false), 27);
+        mgr.add_tab(dummy_tab());
+        // tab_bar subtracted, (600 - 30) / 20 = 28
+        assert_eq!(mgr.term_rows(600, 20.0, 30.0, 0.0), 28);
     }
 
     #[test]
-    fn term_rows_transparent_has_scrollback() {
+    fn term_rows_transparent_without_tab_bar() {
         let mut mgr = TabManager::new();
         mgr.add_tab(dummy_tab());
-        // Has scrollback: content from y=0, full screen rows
-        assert_eq!(mgr.term_rows(600, 20.0, 30.0, 60.0, true), 30);
+        // title_bar subtracted, (600 - 60) / 20 = 27
+        assert_eq!(mgr.term_rows(600, 20.0, 30.0, 60.0), 27);
     }
 
     #[test]
-    fn term_rows_transparent_with_tab_bar_no_scrollback() {
+    fn term_rows_transparent_with_tab_bar() {
         let mut mgr = TabManager::new();
         mgr.add_tab(dummy_tab());
         mgr.add_tab(dummy_tab());
-        // No scrollback: title_bar + tab_bar subtracted, (600 - 60 - 30) / 20 = 25
-        assert_eq!(mgr.term_rows(600, 20.0, 30.0, 60.0, false), 25);
-    }
-
-    #[test]
-    fn term_rows_transparent_with_tab_bar_has_scrollback() {
-        let mut mgr = TabManager::new();
-        mgr.add_tab(dummy_tab());
-        mgr.add_tab(dummy_tab());
-        // Has scrollback: title bar reclaimed but tab bar still subtracted, (600 - 30) / 20 = 28
-        assert_eq!(mgr.term_rows(600, 20.0, 30.0, 60.0, true), 28);
+        // title_bar + tab_bar subtracted, (600 - 60 - 30) / 20 = 25
+        assert_eq!(mgr.term_rows(600, 20.0, 30.0, 60.0), 25);
     }
 
 
