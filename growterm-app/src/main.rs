@@ -11,6 +11,24 @@ mod url;
 mod zoom;
 
 fn main() {
+    // Install panic hook to log panics with backtrace to file
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let backtrace = std::backtrace::Backtrace::force_capture();
+        let log_path = config::config_dir().join("panic.log");
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let thread = std::thread::current();
+        let thread_name = thread.name().unwrap_or("<unnamed>");
+        let content = format!(
+            "[unix:{timestamp}] thread '{thread_name}' {info}\n\nBacktrace:\n{backtrace}\n"
+        );
+        let _ = std::fs::write(&log_path, &content);
+        default_hook(info);
+    }));
+
     let config = config::Config::load();
     let font_size = config.font_size;
     let font_family = config.font_family.clone();
@@ -26,7 +44,28 @@ fn main() {
 
         let config = config.clone();
         std::thread::spawn(move || {
-            app::run(window, rx, drawer, config);
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                app::run(window.clone(), rx, drawer, config);
+            }));
+            if let Err(e) = result {
+                let msg = if let Some(s) = e.downcast_ref::<&str>() {
+                    s.to_string()
+                } else if let Some(s) = e.downcast_ref::<String>() {
+                    s.clone()
+                } else {
+                    format!("{e:?}")
+                };
+                let log_path = config::config_dir().join("panic.log");
+                let timestamp = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                let _ = std::fs::write(&log_path, format!(
+                    "[unix:{timestamp}] app thread panicked: {msg}\n",
+                ));
+                eprintln!("app thread panicked: {msg}");
+                std::process::exit(1);
+            }
         });
     });
 }
