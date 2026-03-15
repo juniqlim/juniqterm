@@ -275,7 +275,10 @@ impl Grid {
 
     fn wrap_cursor(&mut self) {
         self.cursor_col = 0;
-        if self.cursor_row + 1 >= self.rows {
+        let bottom = self.scroll_region_bottom - 1;
+        if self.cursor_row == bottom {
+            self.scroll_region_up(1);
+        } else if self.cursor_row + 1 >= self.rows {
             self.scroll_up();
         } else {
             self.cursor_row += 1;

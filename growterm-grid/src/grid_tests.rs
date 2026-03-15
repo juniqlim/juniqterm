@@ -1354,3 +1354,35 @@ fn resize_expand_restores_partial_scrollback() {
     assert_eq!(grid.scrollback_len(), 1);
     assert_eq!(grid.scrollback()[0][0].character, 'A');
 }
+
+// === wrap_cursor must respect scroll region ===
+
+#[test]
+fn wrap_cursor_respects_scroll_region() {
+    let mut grid = Grid::new(10, 10);
+
+    // Put marker text in the fixed area (row 5)
+    grid.apply(&TerminalCommand::CursorPosition { row: 6, col: 1 });
+    grid.apply(&TerminalCommand::Print('F'));
+    grid.apply(&TerminalCommand::Print('I'));
+    grid.apply(&TerminalCommand::Print('X'));
+
+    // Set scroll region to rows 1-5
+    grid.apply(&TerminalCommand::SetScrollRegion { top: 1, bottom: 5 });
+
+    // Move cursor to row 5 (bottom of scroll region), col 9 (near right edge)
+    grid.apply(&TerminalCommand::CursorPosition { row: 5, col: 9 });
+
+    // Print 3 characters to force a wrap
+    grid.apply(&TerminalCommand::Print('A'));
+    grid.apply(&TerminalCommand::Print('B')); // fills col 9 (last col)
+    grid.apply(&TerminalCommand::Print('C')); // should wrap within scroll region
+
+    // The fixed area (row 5) should still have "FIX"
+    assert_eq!(
+        grid.cells()[5][0].character, 'F',
+        "Fixed area row 5 was overwritten by wrap"
+    );
+    assert_eq!(grid.cells()[5][1].character, 'I');
+    assert_eq!(grid.cells()[5][2].character, 'X');
+}
