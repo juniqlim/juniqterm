@@ -626,8 +626,8 @@ fn resize_clamps_cursor() {
     grid.apply(&TerminalCommand::CursorPosition { row: 8, col: 8 }); // row 7, col 7
     grid.resize(5, 5);
     grid.apply(&TerminalCommand::Print('C'));
-    // Cursor should be clamped to (4,4)
-    assert_eq!(grid.cells()[4][4].character, 'C');
+    // 5 top rows moved to scrollback, cursor_row 7->2, col clamped to 4
+    assert_eq!(grid.cells()[2][4].character, 'C');
 }
 
 // === Step 9: cursor_pos ===
@@ -1295,4 +1295,62 @@ fn reset_scroll_region_restores_full_screen() {
     assert_eq!(grid.cells()[0][0].character, 'B');
     assert_eq!(grid.cells()[1][0].character, 'C');
     assert_eq!(grid.cells()[2][0].character, ' ');
+}
+
+// === Resize with scrollback ===
+
+#[test]
+fn resize_shrink_rows_moves_top_to_scrollback() {
+    let mut grid = Grid::new(5, 4);
+    for (r, ch) in ['A', 'B', 'C', 'D'].iter().enumerate() {
+        grid.apply(&TerminalCommand::CursorPosition { row: r as u16 + 1, col: 1 });
+        grid.apply(&TerminalCommand::Print(*ch));
+    }
+    assert_eq!(grid.cursor_pos(), (3, 1));
+
+    // Shrink to 2 rows: top 2 rows (A, B) should go to scrollback
+    grid.resize(5, 2);
+    assert_eq!(grid.cells().len(), 2);
+    assert_eq!(grid.cells()[0][0].character, 'C');
+    assert_eq!(grid.cells()[1][0].character, 'D');
+    assert_eq!(grid.scrollback_len(), 2);
+    assert_eq!(grid.scrollback()[0][0].character, 'A');
+    assert_eq!(grid.scrollback()[1][0].character, 'B');
+    assert_eq!(grid.cursor_pos(), (1, 1));
+}
+
+#[test]
+fn resize_expand_rows_restores_from_scrollback() {
+    let mut grid = Grid::new(5, 4);
+    for (r, ch) in ['A', 'B', 'C', 'D'].iter().enumerate() {
+        grid.apply(&TerminalCommand::CursorPosition { row: r as u16 + 1, col: 1 });
+        grid.apply(&TerminalCommand::Print(*ch));
+    }
+    // Shrink to 2 (A, B to scrollback), then expand back to 4
+    grid.resize(5, 2);
+    grid.resize(5, 4);
+    assert_eq!(grid.cells().len(), 4);
+    assert_eq!(grid.cells()[0][0].character, 'A');
+    assert_eq!(grid.cells()[1][0].character, 'B');
+    assert_eq!(grid.cells()[2][0].character, 'C');
+    assert_eq!(grid.cells()[3][0].character, 'D');
+    assert_eq!(grid.scrollback_len(), 0);
+    assert_eq!(grid.cursor_pos(), (3, 1));
+}
+
+#[test]
+fn resize_expand_restores_partial_scrollback() {
+    let mut grid = Grid::new(5, 3);
+    for (r, ch) in ['A', 'B', 'C'].iter().enumerate() {
+        grid.apply(&TerminalCommand::CursorPosition { row: r as u16 + 1, col: 1 });
+        grid.apply(&TerminalCommand::Print(*ch));
+    }
+    grid.resize(5, 1);
+    assert_eq!(grid.scrollback_len(), 2);
+    // Expand to 2: only B restored, A stays in scrollback
+    grid.resize(5, 2);
+    assert_eq!(grid.cells()[0][0].character, 'B');
+    assert_eq!(grid.cells()[1][0].character, 'C');
+    assert_eq!(grid.scrollback_len(), 1);
+    assert_eq!(grid.scrollback()[0][0].character, 'A');
 }

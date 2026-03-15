@@ -170,18 +170,52 @@ impl Grid {
     pub fn resize(&mut self, cols: u16, rows: u16) {
         let new_cols = cols as usize;
         let new_rows = rows as usize;
+        let old_rows = self.rows;
 
         // Adjust existing rows' width
         for row in &mut self.cells {
             row.resize(new_cols, Cell::default());
         }
-        // Adjust row count
-        self.cells.resize(new_rows, vec![Cell::default(); new_cols]);
+
+        if new_rows < old_rows {
+            // Shrink: move excess top rows to scrollback (keep cursor visible)
+            let rows_to_remove = old_rows - new_rows;
+            // Don't remove more rows than cursor_row (keep cursor on screen)
+            let removable = rows_to_remove.min(self.cursor_row);
+            for _ in 0..removable {
+                let row = self.cells.remove(0);
+                self.scrollback.push(row);
+            }
+            self.cursor_row -= removable;
+            // Truncate remaining excess from bottom
+            self.cells.truncate(new_rows);
+            // Trim scrollback if over limit
+            while self.scrollback.len() > MAX_SCROLLBACK {
+                self.scrollback.remove(0);
+            }
+        } else if new_rows > old_rows {
+            // Expand: restore rows from scrollback to top
+            let rows_to_add = new_rows - old_rows;
+            let restore = rows_to_add.min(self.scrollback.len());
+            for _ in 0..restore {
+                let row = self.scrollback.pop().unwrap();
+                self.cells.insert(0, row);
+            }
+            self.cursor_row += restore;
+            // Fill remaining with blank rows at bottom
+            self.cells.resize(new_rows, vec![Cell::default(); new_cols]);
+        }
+
+        // Adjust scrollback row widths
+        for row in &mut self.scrollback {
+            row.resize(new_cols, Cell::default());
+        }
 
         self.cols = new_cols;
         self.rows = new_rows;
         self.cursor_row = self.cursor_row.min(self.rows - 1);
         self.cursor_col = self.cursor_col.min(self.cols - 1);
+        self.scroll_offset = self.scroll_offset.min(self.scrollback.len());
         // Reset scroll region on resize
         self.scroll_region_top = 0;
         self.scroll_region_bottom = self.rows;
