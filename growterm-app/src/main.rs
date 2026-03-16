@@ -25,7 +25,12 @@ fn main() {
         let content = format!(
             "[unix:{timestamp}] thread '{thread_name}' {info}\n\nBacktrace:\n{backtrace}\n"
         );
-        let _ = std::fs::write(&log_path, &content);
+        let _ = std::fs::OpenOptions::new()
+            .create(true).append(true).open(&log_path)
+            .and_then(|mut f| {
+                use std::io::Write;
+                f.write_all(content.as_bytes())
+            });
         default_hook(info);
     }));
 
@@ -60,9 +65,12 @@ fn main() {
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_secs())
                     .unwrap_or(0);
-                let _ = std::fs::write(&log_path, format!(
-                    "[unix:{timestamp}] app thread panicked: {msg}\n",
-                ));
+                let _ = std::fs::OpenOptions::new()
+                    .create(true).append(true).open(&log_path)
+                    .and_then(|mut f| {
+                        use std::io::Write;
+                        writeln!(f, "[unix:{timestamp}] app thread panicked (catch_unwind): {msg}")
+                    });
                 eprintln!("app thread panicked: {msg}");
                 std::process::exit(1);
             }
