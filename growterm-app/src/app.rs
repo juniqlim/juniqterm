@@ -8,6 +8,17 @@ use growterm_macos::{AppEvent, MacWindow, Modifiers};
 
 use crate::config::CopyModeAction;
 
+#[allow(dead_code)]
+fn debug_log(msg: &str) {
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/tmp/growterm-url-debug.log")
+    {
+        let _ = writeln!(f, "{}", msg);
+    }
+}
+
 /// Freeze diagnostic logger — writes directly to ~/.config/growterm/freeze.log.
 /// Truncates the file every 200 lines to keep only recent events.
 struct FreezeLog {
@@ -205,8 +216,8 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
         0.0
     };
     let mut title_bar_height = title_bar_height;
-    // hover_url_range: (abs_row, start_col, end_col) for Cmd+hover URL underline
-    let mut hover_url_range: Option<(u32, u16, u16)> = None;
+    // hover_url_ranges: Vec of (abs_row, start_col, end_col) for Cmd+hover URL underline (multi-row)
+    let mut hover_url_ranges: Vec<(u32, u16, u16)> = Vec::new();
     let mut scrollbar_dragging = false;
     let mut scrollbar_visible_until: Option<Instant> = None;
     const SCROLLBAR_HIT_WIDTH: f32 = 20.0;
@@ -221,12 +232,12 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
 
     macro_rules! do_render {
         () => {
-            if render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, hover_url_range, pomodoro.is_input_blocked(), pomodoro.coaching_lines().as_deref(), scrollbar_dragging || scrollbar_visible_until.map_or(false, |t| t > Instant::now()), copy_flash, tab_dragging, transparent_tab_bar, title_bar_height, header_opacity) {
+            if render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, &hover_url_ranges, pomodoro.is_input_blocked(), pomodoro.coaching_lines().as_deref(), scrollbar_dragging || scrollbar_visible_until.map_or(false, |t| t > Instant::now()), copy_flash, tab_dragging, transparent_tab_bar, title_bar_height, header_opacity) {
                 window.request_redraw();
             }
         };
         (scrollbar: true) => {
-            if render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, hover_url_range, pomodoro.is_input_blocked(), pomodoro.coaching_lines().as_deref(), true, copy_flash, tab_dragging, transparent_tab_bar, title_bar_height, header_opacity) {
+            if render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, &hover_url_ranges, pomodoro.is_input_blocked(), pomodoro.coaching_lines().as_deref(), true, copy_flash, tab_dragging, transparent_tab_bar, title_bar_height, header_opacity) {
                 window.request_redraw();
             }
         };
@@ -712,17 +723,16 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                 if modifiers.contains(Modifiers::SUPER) {
                     if let Some(tab) = tabs.active_tab() {
                         let state = tab.terminal.lock().unwrap();
-                        let row_text = selection::row_text_absolute(&state.grid, abs_row);
-                        let row_cells = selection::row_cells_absolute(&state.grid, abs_row);
-                        drop(state);
-                        let char_col = selection::cell_col_to_char_index(&row_cells, col as usize);
-                        if let Some(found_url) = url::find_url_at(&row_text, char_col) {
+                        if let Some(found_url) = selection::find_url_at_logical(&state.grid, abs_row, col as usize) {
+                            drop(state);
                             let _ = std::process::Command::new("open")
                                 .arg(found_url)
                                 .spawn();
+                        } else {
+                            drop(state);
                         }
                     }
-                    hover_url_range = None;
+                    hover_url_ranges.clear();
                     window.request_redraw();
                     continue;
                 }
@@ -814,7 +824,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                 window.request_redraw();
             }
             AppEvent::MouseMoved(x, y, modifiers) => {
-                let new_range = if modifiers.contains(Modifiers::SUPER) {
+                let new_ranges: Vec<(u32, u16, u16)> = if modifiers.contains(Modifiers::SUPER) {
                     let (cw, ch) = drawer.cell_size();
                     let (screen_row, col) = selection::mouse_pixel_to_cell(
                         x as f32, y as f32, cw, ch,
@@ -823,27 +833,18 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                     if let Some(tab) = tabs.active_tab() {
                         let abs_row = screen_to_abs_row(&tabs, screen_row);
                         let state = tab.terminal.lock().unwrap();
-                        let row_text = selection::row_text_absolute(&state.grid, abs_row);
-                        let row_cells = selection::row_cells_absolute(&state.grid, abs_row);
+                        let ranges = selection::find_url_hover_ranges(&state.grid, abs_row, col as usize);
                         drop(state);
-                        let char_col = selection::cell_col_to_char_index(&row_cells, col as usize);
-                        if let Some((start, end)) = url::find_url_range_at(&row_text, char_col)
-                        {
-                            let start_cell = selection::char_index_to_cell_col(&row_cells, start) as u16;
-                            let end_cell = selection::char_index_to_cell_col(&row_cells, end) as u16;
-                            Some((abs_row, start_cell, end_cell))
-                        } else {
-                            None
-                        }
+                        ranges
                     } else {
-                        None
+                        Vec::new()
                     }
                 } else {
-                    None
+                    Vec::new()
                 };
-                if new_range != hover_url_range {
-                    window.set_pointing_hand_cursor(new_range.is_some());
-                    hover_url_range = new_range;
+                if new_ranges != hover_url_ranges {
+                    window.set_pointing_hand_cursor(!new_ranges.is_empty());
+                    hover_url_ranges = new_ranges;
                     window.request_redraw();
                 }
             }
@@ -1318,7 +1319,7 @@ fn shell_escape(path: &str) -> String {
 }
 
 /// Returns true if the glyph budget was exceeded and another redraw is needed.
-fn render_with_tabs(drawer: &mut GpuDrawer, tabs: &TabManager, preedit: &str, sel: &Selection, ink_state: &InkImeState, hover_url_range: Option<(u32, u16, u16)>, is_break: bool, break_text: Option<&[String]>, show_scrollbar: bool, copy_flash: Option<(u16, u16, Instant)>, tab_dragging: Option<usize>, transparent_tab_bar: bool, title_bar_height: f32, header_opacity: f32) -> bool {
+fn render_with_tabs(drawer: &mut GpuDrawer, tabs: &TabManager, preedit: &str, sel: &Selection, ink_state: &InkImeState, hover_url_ranges: &[(u32, u16, u16)], is_break: bool, break_text: Option<&[String]>, show_scrollbar: bool, copy_flash: Option<(u16, u16, Instant)>, tab_dragging: Option<usize>, transparent_tab_bar: bool, title_bar_height: f32, header_opacity: f32) -> bool {
     let tab = match tabs.active_tab() {
         Some(t) => t,
         None => return false,
@@ -1374,8 +1375,8 @@ fn render_with_tabs(drawer: &mut GpuDrawer, tabs: &TabManager, preedit: &str, se
         if scrolled { None } else { Some(cursor_pos) },
     );
 
-    // Post-process: add UNDERLINE flag for hover URL range
-    if let Some((abs_row, start_col, end_col)) = hover_url_range {
+    // Post-process: add UNDERLINE flag for hover URL ranges (multi-row)
+    for &(abs_row, start_col, end_col) in hover_url_ranges {
         if abs_row >= view_base && abs_row < view_base + visible_rows as u32 {
             let screen_row = (abs_row - view_base) as u16;
             for cmd in commands.iter_mut() {

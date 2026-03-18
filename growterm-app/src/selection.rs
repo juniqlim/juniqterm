@@ -319,6 +319,225 @@ pub fn char_index_to_cell_col(line: &[Cell], char_idx: usize) -> usize {
     col
 }
 
+/// Check if a row looks like it was soft-wrapped (last cell is non-space/non-null).
+fn is_row_wrapped(cells: &[Cell]) -> bool {
+    if cells.is_empty() {
+        return false;
+    }
+    let last = &cells[cells.len() - 1];
+    last.character != ' ' && last.character != '\0'
+}
+
+/// Find the range of rows forming a logical line around `abs_row`.
+fn logical_line_rows(grid: &growterm_grid::Grid, abs_row: u32) -> (u32, u32) {
+    let sb_len = grid.scrollback().len() as u32;
+    let total_rows = sb_len + grid.cells().len() as u32;
+
+    let mut first = abs_row;
+    while first > 0 {
+        let prev_cells = row_cells_absolute(grid, first - 1);
+        if is_row_wrapped(&prev_cells) {
+            first -= 1;
+        } else {
+            break;
+        }
+    }
+
+    let mut last = abs_row;
+    loop {
+        let cells = row_cells_absolute(grid, last);
+        if last >= total_rows.saturating_sub(1) || !is_row_wrapped(&cells) {
+            break;
+        }
+        last += 1;
+    }
+
+    (first, last)
+}
+
+/// Build a URL-friendly logical line by stripping leading whitespace from continuation rows.
+/// Returns (stripped_text, logical_col) where logical_col is the adjusted column in stripped_text.
+fn build_url_logical_line(
+    grid: &growterm_grid::Grid,
+    abs_row: u32,
+    cell_col: usize,
+) -> (String, usize) {
+    let (first, last) = logical_line_rows(grid, abs_row);
+
+    let mut stripped_text = String::new();
+    let mut logical_col = 0;
+
+    for row in first..=last {
+        let cells = row_cells_absolute(grid, row);
+        let text = collect_line_text(&cells);
+
+        let (effective, leading_chars) = if row == first {
+            (text.as_str(), 0usize)
+        } else {
+            let trimmed = text.trim_start();
+            let trim_bytes = text.len() - trimmed.len();
+            let trim_chars = text[..trim_bytes].chars().count();
+            (trimmed, trim_chars)
+        };
+
+        if row == abs_row {
+            let char_col_in_row = cell_col_to_char_index(&cells, cell_col);
+            logical_col = stripped_text.chars().count()
+                + char_col_in_row.saturating_sub(leading_chars);
+        }
+
+        stripped_text.push_str(effective);
+
+        if row == last {
+            break;
+        }
+    }
+
+    (stripped_text, logical_col)
+}
+
+/// Find a URL at the given grid position, joining wrapped/broken lines.
+pub fn find_url_at_logical(
+    grid: &growterm_grid::Grid,
+    abs_row: u32,
+    cell_col: usize,
+) -> Option<String> {
+    let (text, col) = build_url_logical_line(grid, abs_row, cell_col);
+    crate::url::find_url_at(&text, col).map(|s| s.to_string())
+}
+
+/// Compute per-row hover underline ranges for a URL at the given position.
+/// Walks through URL chars and row chars in parallel, skipping non-matching whitespace.
+pub fn find_url_hover_ranges(
+    grid: &growterm_grid::Grid,
+    abs_row: u32,
+    cell_col: usize,
+) -> Vec<(u32, u16, u16)> {
+    let url = match find_url_at_logical(grid, abs_row, cell_col) {
+        Some(u) => u,
+        None => return Vec::new(),
+    };
+
+    let (first, last) = logical_line_rows(grid, abs_row);
+    let mut ranges = Vec::new();
+    let mut url_chars = url.chars().peekable();
+
+    for row in first..=last {
+        if url_chars.peek().is_none() {
+            break;
+        }
+
+        let cells = row_cells_absolute(grid, row);
+        let text = collect_line_text(&cells);
+        let text_chars: Vec<char> = text.chars().collect();
+
+        let mut start_char_idx: Option<usize> = None;
+        let mut end_char_idx: usize = 0;
+
+        for (i, &tc) in text_chars.iter().enumerate() {
+            if let Some(&uc) = url_chars.peek() {
+                if tc == uc {
+                    if start_char_idx.is_none() {
+                        start_char_idx = Some(i);
+                    }
+                    end_char_idx = i + 1;
+                    url_chars.next();
+                }
+                // skip whitespace/non-matching chars (indentation)
+            } else {
+                break;
+            }
+        }
+
+        if let Some(sci) = start_char_idx {
+            let start_cell = char_index_to_cell_col(&cells, sci) as u16;
+            let end_cell = char_index_to_cell_col(&cells, end_char_idx) as u16;
+            ranges.push((row, start_cell, end_cell));
+        }
+    }
+
+    ranges
+}
+
+/// Build a logical line by concatenating soft-wrapped rows around `abs_row`.
+/// Returns (combined_text, combined_cells, first_abs_row, char_offset_of_target_row).
+pub fn build_logical_line(
+    grid: &growterm_grid::Grid,
+    abs_row: u32,
+) -> (String, Vec<Cell>, u32, usize) {
+    let (first, last) = logical_line_rows(grid, abs_row);
+
+    let mut combined_text = String::new();
+    let mut combined_cells: Vec<Cell> = Vec::new();
+    let mut char_offset = 0;
+
+    for row in first..=last {
+        let cells = row_cells_absolute(grid, row);
+        let text = collect_line_text(&cells);
+        if row == abs_row {
+            char_offset = combined_text.chars().count();
+        }
+        combined_text.push_str(&text);
+        combined_cells.extend(cells.iter().cloned());
+    }
+
+    (combined_text, combined_cells, first, char_offset)
+}
+
+/// Convert a char range in a logical (multi-row) line back to per-row (abs_row, start_cell_col, end_cell_col).
+pub fn logical_range_to_row_ranges(
+    logical_cells: &[Cell],
+    first_row: u32,
+    cols: usize,
+    char_start: usize,
+    char_end: usize,
+) -> Vec<(u32, u16, u16)> {
+    // Walk logical_cells to map char indices to (row, cell_col)
+    let mut result = Vec::new();
+    let mut char_idx = 0;
+    let mut cell_idx = 0;
+
+    // Find the cell index for char_start and char_end
+    let mut start_cell = 0;
+    let mut end_cell = 0;
+    while cell_idx < logical_cells.len() && char_idx < char_end {
+        if char_idx == char_start {
+            start_cell = cell_idx;
+        }
+        if logical_cells[cell_idx].flags.contains(CellFlags::WIDE_CHAR) {
+            cell_idx += 2;
+        } else {
+            cell_idx += 1;
+        }
+        char_idx += 1;
+        if char_idx == char_end {
+            end_cell = cell_idx;
+        }
+    }
+    if char_idx == char_start {
+        start_cell = cell_idx;
+    }
+    if char_idx >= char_end && end_cell == 0 {
+        end_cell = cell_idx;
+    }
+
+    // Now split the cell range [start_cell..end_cell] into per-row segments
+    let first_row_of_range = start_cell / cols;
+    let last_row_of_range = if end_cell == 0 { 0 } else { (end_cell - 1) / cols };
+
+    for row_offset in first_row_of_range..=last_row_of_range {
+        let row_start_cell = row_offset * cols;
+        let row_end_cell = (row_offset + 1) * cols;
+        let seg_start = start_cell.max(row_start_cell) - row_start_cell;
+        let seg_end = end_cell.min(row_end_cell) - row_start_cell;
+        if seg_start < seg_end {
+            result.push((first_row + row_offset as u32, seg_start as u16, seg_end as u16));
+        }
+    }
+
+    result
+}
+
 /// Get cell slice for an absolute row (scrollback + screen).
 pub fn row_cells_absolute(grid: &growterm_grid::Grid, abs_row: u32) -> Vec<Cell> {
     let scrollback = grid.scrollback();
@@ -669,5 +888,223 @@ mod tests {
         assert_eq!(char_index_to_cell_col(&cells[0], 2), 4);
         assert_eq!(char_index_to_cell_col(&cells[0], 3), 5);
         assert_eq!(char_index_to_cell_col(&cells[0], 4), 6);
+    }
+
+    #[test]
+    fn is_row_wrapped_non_space_end() {
+        let cells = make_cells(&["abcde"]);
+        assert!(is_row_wrapped(&cells[0]));
+    }
+
+    #[test]
+    fn is_row_wrapped_space_end() {
+        let cells = make_cells(&["abc  "]);
+        assert!(!is_row_wrapped(&cells[0]));
+    }
+
+    #[test]
+    fn is_row_wrapped_empty() {
+        assert!(!is_row_wrapped(&[]));
+    }
+
+    #[test]
+    fn logical_range_to_row_ranges_single_row() {
+        // 10 cols per row, URL "https://x.c" at chars 0..11 on single row
+        let cells = make_cells(&["https://x.c"]);
+        let result = logical_range_to_row_ranges(&cells[0], 5, 11, 0, 11);
+        assert_eq!(result, vec![(5, 0, 11)]);
+    }
+
+    #[test]
+    fn logical_range_to_row_ranges_two_rows() {
+        // 5 cols per row, logical line = "abchttps://x" (12 chars, 12 cells)
+        // Row 0 (first_row=10): cells 0..5 = "abcht"
+        // Row 1 (first_row=11): cells 5..10 = "tps:/"
+        // Row 2 (first_row=12): cells 10..12 = "/x"
+        // URL "https://x" starts at char 3, ends at char 12 → cells 3..12
+        let mut all_cells: Vec<Cell> = Vec::new();
+        for c in "abchttps://x".chars() {
+            all_cells.push(Cell {
+                character: c,
+                fg: Color::Default,
+                bg: Color::Default,
+                flags: CellFlags::empty(),
+            });
+        }
+        let result = logical_range_to_row_ranges(&all_cells, 10, 5, 3, 12);
+        // Row 10: cells 3..5
+        // Row 11: cells 0..5
+        // Row 12: cells 0..2
+        assert_eq!(result, vec![(10, 3, 5), (11, 0, 5), (12, 0, 2)]);
+    }
+
+    #[test]
+    fn build_logical_line_wrapped_url() {
+        use growterm_grid::Grid;
+        use growterm_types::TerminalCommand;
+
+        // 10-col terminal, print "https://example.com/path" (24 chars, wraps across 3 rows)
+        let mut grid = Grid::new(10, 5);
+        for c in "https://example.com/path".chars() {
+            grid.apply(&TerminalCommand::Print(c));
+        }
+        // Row 0: "https://ex" (wrapped)
+        // Row 1: "ample.com/" (wrapped)
+        // Row 2: "path      "
+
+        let (text, _cells, first_row, offset) = build_logical_line(&grid, 0);
+        assert!(text.starts_with("https://ex"));
+        assert_eq!(first_row, 0);
+        assert_eq!(offset, 0);
+
+        // Clicking on row 1 should also find the full URL
+        let (text1, _cells1, first_row1, offset1) = build_logical_line(&grid, 1);
+        assert_eq!(first_row1, 0);
+        assert_eq!(offset1, 10); // 10 chars in row 0
+        assert!(text1.contains("https://"));
+    }
+
+    #[test]
+    fn wrapped_url_find_url_at_from_any_row() {
+        use growterm_grid::Grid;
+        use growterm_types::TerminalCommand;
+        use crate::url;
+
+        // 20-col terminal, URL = "https://example.com/very/long/path/here" (39 chars)
+        // Row 0: "https://example.com/" (20 chars, wrapped)
+        // Row 1: "very/long/path/here" + null cell (19 chars + 1 null → ' ')
+        let url_str = "https://example.com/very/long/path/here";
+        let mut grid = Grid::new(20, 5);
+        for c in url_str.chars() {
+            grid.apply(&TerminalCommand::Print(c));
+        }
+
+        let (text, _cells, _first, offset) = build_logical_line(&grid, 0);
+
+        // From row 0, col 5 (inside URL)
+        let logical_col = offset + 5;
+        let found = url::find_url_at(&text, logical_col);
+        assert_eq!(found, Some(url_str));
+
+        // From row 1, col 3 (inside "very/long/..." part)
+        let (text1, _cells1, _first1, offset1) = build_logical_line(&grid, 1);
+        let logical_col1 = offset1 + 3;
+        let found1 = url::find_url_at(&text1, logical_col1);
+        assert_eq!(found1, Some(url_str));
+    }
+
+    #[test]
+    fn hard_break_yaml_url_click() {
+        use growterm_grid::Grid;
+        use growterm_types::TerminalCommand;
+
+        // Simulate 80-col terminal displaying YAML with URLs broken by newline+indent.
+        // The YAML serializer inserts \n followed by 2-space indent in long URLs.
+        let mut grid = Grid::new(80, 30);
+
+        // This simulates `cat file.yaml` output where URLs are split across lines.
+        // Line 1: "  - https://namu.wiki/w/%EB%A5%B4...%20%E" (exactly 80 chars, fills row)
+        // Line 2: "  C%82%AC%EB%A7%9D%20%EC%82%AC%EA%B1%B4" (starts with 2-space indent)
+        let line1 = "  - https://namu.wiki/w/%EB%A5%B4%EB%84%A4%20%EB%8B%88%EC%BD%9C%20%EA%B5%BF%20%E";
+        let line2 = "  C%82%AC%EB%A7%9D%20%EC%82%AC%EA%B1%B4";
+
+        assert_eq!(line1.len(), 80); // verify it fills the terminal width
+
+        for c in line1.chars() {
+            grid.apply(&TerminalCommand::Print(c));
+        }
+        // Hard line break (actual \n in content)
+        grid.apply(&TerminalCommand::Newline);
+        grid.apply(&TerminalCommand::CarriageReturn);
+        for c in line2.chars() {
+            grid.apply(&TerminalCommand::Print(c));
+        }
+
+        let expected_url = "https://namu.wiki/w/%EB%A5%B4%EB%84%A4%20%EB%8B%88%EC%BD%9C%20%EA%B5%BF%20%EC%82%AC%EB%A7%9D%20%EC%82%AC%EA%B1%B4";
+
+        // Click on row 0, col 10 (inside URL first part)
+        let found0 = find_url_at_logical(&grid, 0, 10);
+        assert_eq!(found0.as_deref(), Some(expected_url));
+
+        // Click on row 1, col 5 (inside URL continuation, after 2-space indent)
+        let found1 = find_url_at_logical(&grid, 1, 5);
+        assert_eq!(found1.as_deref(), Some(expected_url));
+
+        // Hover: should produce ranges on both rows
+        let ranges = find_url_hover_ranges(&grid, 1, 5);
+        assert_eq!(ranges.len(), 2);
+        assert_eq!(ranges[0].0, 0); // row 0
+        assert_eq!(ranges[0].1, 4); // starts after "  - "
+        assert_eq!(ranges[1].0, 1); // row 1
+        assert_eq!(ranges[1].1, 2); // starts after "  " indent
+    }
+
+    #[test]
+    fn hard_break_yaml_all_urls() {
+        use growterm_grid::Grid;
+        use growterm_types::TerminalCommand;
+
+        let mut grid = Grid::new(80, 30);
+
+        // Print content line by line with actual newlines (simulates `cat` output)
+        let content_lines = [
+            "  Sources:",
+            "  - https://en.wikipedia.org/wiki/Operation_Metro_Surge",
+            "  - https://namu.wiki/w/%EB%A5%B4%EB%84%A4%20%EB%8B%88%EC%BD%9C%20%EA%B5%BF%20%E",
+            "  C%82%AC%EB%A7%9D%20%EC%82%AC%EA%B1%B4",
+            "  - https://www.minneapolismn.gov/news/2026/january/ag-lawsuit/",
+            "  - https://www.shadedcommunity.com/2026/02/26/%EB%AF%B8%EB%84%A4%EC%86%8C%ED%83",
+            "  %80-ice-%EC%84%9C%EB%A5%98-%EC%95%95%EC%88%98-%EB%85%BC%EB%9E%80/",
+            "  - https://imnews.imbc.com/news/2026/world/article/6794374_36925.html",
+            "  - https://namu.wiki/w/2026%EB%85%84%20%EC%9D%B4%EB%AF%BC%EC%84%B8%EA%B4%80%EB%",
+            "  8B%A8%EC%86%8D%EA%B5%AD%20%EB%B0%98%EB%8C%80%20%EC%8B%9C%EC%9C%84",
+        ];
+
+        for (i, line) in content_lines.iter().enumerate() {
+            if i > 0 {
+                grid.apply(&TerminalCommand::Newline);
+                grid.apply(&TerminalCommand::CarriageReturn);
+            }
+            for c in line.chars() {
+                grid.apply(&TerminalCommand::Print(c));
+            }
+        }
+
+        let namu1_url = "https://namu.wiki/w/%EB%A5%B4%EB%84%A4%20%EB%8B%88%EC%BD%9C%20%EA%B5%BF%20%EC%82%AC%EB%A7%9D%20%EC%82%AC%EA%B1%B4";
+        let shaded_url = "https://www.shadedcommunity.com/2026/02/26/%EB%AF%B8%EB%84%A4%EC%86%8C%ED%83%80-ice-%EC%84%9C%EB%A5%98-%EC%95%95%EC%88%98-%EB%85%BC%EB%9E%80/";
+        let namu2_url = "https://namu.wiki/w/2026%EB%85%84%20%EC%9D%B4%EB%AF%BC%EC%84%B8%EA%B4%80%EB%8B%A8%EC%86%8D%EA%B5%AD%20%EB%B0%98%EB%8C%80%20%EC%8B%9C%EC%9C%84";
+
+        // Row 3 = "  C%82%AC..." (continuation of namu1)
+        assert_eq!(find_url_at_logical(&grid, 3, 5).as_deref(), Some(namu1_url));
+        // Row 2 = "  - https://namu..." (first part of namu1)
+        assert_eq!(find_url_at_logical(&grid, 2, 10).as_deref(), Some(namu1_url));
+
+        // Row 6 = "  %80-ice-..." (continuation of shaded)
+        assert_eq!(find_url_at_logical(&grid, 6, 5).as_deref(), Some(shaded_url));
+        // Row 5 = "  - https://www.shadedcommunity..." (first part of shaded)
+        assert_eq!(find_url_at_logical(&grid, 5, 10).as_deref(), Some(shaded_url));
+
+        // Row 9 = "  8B%A8..." (continuation of namu2)
+        assert_eq!(find_url_at_logical(&grid, 9, 5).as_deref(), Some(namu2_url));
+        // Row 8 = "  - https://namu.wiki/w/2026..." (first part of namu2)
+        assert_eq!(find_url_at_logical(&grid, 8, 10).as_deref(), Some(namu2_url));
+    }
+
+    #[test]
+    fn soft_wrap_url_hover_ranges() {
+        use growterm_grid::Grid;
+        use growterm_types::TerminalCommand;
+
+        // Pure soft-wrap (no newline in content)
+        let url_str = "https://example.com/very/long/path/here";
+        let mut grid = Grid::new(20, 5);
+        for c in url_str.chars() {
+            grid.apply(&TerminalCommand::Print(c));
+        }
+
+        let ranges = find_url_hover_ranges(&grid, 1, 3);
+        assert_eq!(ranges.len(), 2);
+        assert_eq!(ranges[0].0, 0);
+        assert_eq!(ranges[1].0, 1);
     }
 }

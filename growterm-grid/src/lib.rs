@@ -75,6 +75,10 @@ impl Grid {
         &self.cells
     }
 
+    pub fn cols(&self) -> usize {
+        self.cols
+    }
+
     pub fn cursor_pos(&self) -> (u16, u16) {
         (self.cursor_row as u16, self.cursor_col as u16)
     }
