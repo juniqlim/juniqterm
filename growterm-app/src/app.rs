@@ -54,6 +54,7 @@ impl FreezeLog {
 use crate::copy_mode::CopyMode;
 use crate::ink_workaround::InkImeState;
 use crate::pomodoro::{Pomodoro, TickResult};
+use crate::search_mode::SearchMode;
 use crate::selection::{self, Selection};
 use crate::tab::{Tab, TabManager};
 use crate::url;
@@ -198,6 +199,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
     }
     let mut copy_mode = CopyMode::new();
     let mut copy_mode_action_map = config.copy_mode_keys.build_action_map();
+    let mut search_mode = SearchMode::new();
     let mut pomodoro = Pomodoro::new(config.pomodoro_work_minutes * 60, config.pomodoro_break_minutes * 60);
     if config.pomodoro {
         pomodoro.toggle();
@@ -231,16 +233,30 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
     let mut last_ime_cursor_rect: Option<(f32, f32, f32, f32)> = None;
 
     macro_rules! do_render {
-        () => {
-            if render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, &hover_url_ranges, pomodoro.is_input_blocked(), pomodoro.coaching_lines().as_deref(), scrollbar_dragging || scrollbar_visible_until.map_or(false, |t| t > Instant::now()), copy_flash, tab_dragging, transparent_tab_bar, title_bar_height, header_opacity) {
+        () => {{
+            let search_hl = search_mode.highlight_ranges();
+            let search_cur = search_mode.current_match().map(|m| (m.abs_row, m.col_start, m.col_end));
+            let search_bar_info = if search_mode.active {
+                Some((search_mode.query.as_str(), search_mode.matches.len(), search_mode.current))
+            } else {
+                None
+            };
+            if render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, &hover_url_ranges, pomodoro.is_input_blocked(), pomodoro.coaching_lines().as_deref(), scrollbar_dragging || scrollbar_visible_until.map_or(false, |t| t > Instant::now()), copy_flash, tab_dragging, transparent_tab_bar, title_bar_height, header_opacity, &search_hl, search_cur, search_bar_info) {
                 window.request_redraw();
             }
-        };
-        (scrollbar: true) => {
-            if render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, &hover_url_ranges, pomodoro.is_input_blocked(), pomodoro.coaching_lines().as_deref(), true, copy_flash, tab_dragging, transparent_tab_bar, title_bar_height, header_opacity) {
+        }};
+        (scrollbar: true) => {{
+            let search_hl = search_mode.highlight_ranges();
+            let search_cur = search_mode.current_match().map(|m| (m.abs_row, m.col_start, m.col_end));
+            let search_bar_info = if search_mode.active {
+                Some((search_mode.query.as_str(), search_mode.matches.len(), search_mode.current))
+            } else {
+                None
+            };
+            if render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, &hover_url_ranges, pomodoro.is_input_blocked(), pomodoro.coaching_lines().as_deref(), true, copy_flash, tab_dragging, transparent_tab_bar, title_bar_height, header_opacity, &search_hl, search_cur, search_bar_info) {
                 window.request_redraw();
             }
-        };
+        }};
     }
 
     let mut flog = FreezeLog::new();
@@ -275,6 +291,21 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
         match event {
             AppEvent::TextCommit(text) => {
                 preedit.clear();
+                // 검색모드: TextCommit을 검색 쿼리에 추가
+                if search_mode.active {
+                    for c in text.chars() {
+                        if !c.is_control() {
+                            search_mode.push_char(c);
+                        }
+                    }
+                    if let Some(tab) = tabs.active_tab() {
+                        let state = tab.terminal.lock().unwrap();
+                        search_mode.search(&state.grid);
+                    }
+                    do_render!();
+                    continue;
+                }
+
                 // 백틱(`) 또는 ₩: 복사모드 진입/종료
                 if (text == "`" || text == "₩") && !copy_mode.active {
                     if let Some(tab) = tabs.active_tab() {
@@ -539,6 +570,16 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                         continue;
                     }
 
+                    // Cmd+F: 검색 모드 진입
+                    if keycode == kc::ANSI_F {
+                        if !search_mode.active {
+                            search_mode.enter();
+                            window.discard_marked_text();
+                        }
+                        do_render!();
+                        continue;
+                    }
+
                     // Cmd+= / Cmd+- (zoom)
                     let zoom_delta = match keycode {
                         k if k == kc::ANSI_EQUAL => Some(2.0f32),
@@ -556,6 +597,63 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                         do_render!();
                         continue;
                     }
+                    continue;
+                }
+
+                // 검색모드: 키 입력을 검색에 사용
+                if search_mode.active {
+                    match keycode {
+                        kc::ESCAPE => {
+                            search_mode.exit();
+                        }
+                        kc::RETURN => {
+                            if modifiers.contains(Modifiers::SHIFT) {
+                                search_mode.prev_match();
+                            } else {
+                                search_mode.next_match();
+                            }
+                            // 현재 매치로 스크롤
+                            if let Some(m) = search_mode.current_match() {
+                                if let Some(tab) = tabs.active_tab() {
+                                    let mut state = tab.terminal.lock().unwrap();
+                                    let sb_len = state.grid.scrollback_len();
+                                    let visible_rows = state.grid.cells().len();
+                                    let offset = state.grid.scroll_offset();
+                                    let view_top = sb_len.saturating_sub(offset) as u32;
+                                    let view_bottom = view_top + visible_rows as u32;
+                                    let target = m.abs_row;
+                                    if target < view_top || target >= view_bottom {
+                                        // Center the match on screen
+                                        let center_offset = sb_len.saturating_sub(target as usize).saturating_add(visible_rows / 2);
+                                        let new_offset = center_offset.min(sb_len);
+                                        state.grid.set_scroll_offset(new_offset);
+                                    }
+                                }
+                            }
+                        }
+                        kc::DELETE => {
+                            search_mode.pop_char();
+                            if let Some(tab) = tabs.active_tab() {
+                                let state = tab.terminal.lock().unwrap();
+                                search_mode.search(&state.grid);
+                            }
+                        }
+                        _ => {
+                            // 일반 문자 입력
+                            if let Some(chars) = characters.as_deref() {
+                                for c in chars.chars() {
+                                    if !c.is_control() {
+                                        search_mode.push_char(c);
+                                    }
+                                }
+                                if let Some(tab) = tabs.active_tab() {
+                                    let state = tab.terminal.lock().unwrap();
+                                    search_mode.search(&state.grid);
+                                }
+                            }
+                        }
+                    }
+                    do_render!();
                     continue;
                 }
 
@@ -1319,7 +1417,7 @@ fn shell_escape(path: &str) -> String {
 }
 
 /// Returns true if the glyph budget was exceeded and another redraw is needed.
-fn render_with_tabs(drawer: &mut GpuDrawer, tabs: &TabManager, preedit: &str, sel: &Selection, ink_state: &InkImeState, hover_url_ranges: &[(u32, u16, u16)], is_break: bool, break_text: Option<&[String]>, show_scrollbar: bool, copy_flash: Option<(u16, u16, Instant)>, tab_dragging: Option<usize>, transparent_tab_bar: bool, title_bar_height: f32, header_opacity: f32) -> bool {
+fn render_with_tabs(drawer: &mut GpuDrawer, tabs: &TabManager, preedit: &str, sel: &Selection, ink_state: &InkImeState, hover_url_ranges: &[(u32, u16, u16)], is_break: bool, break_text: Option<&[String]>, show_scrollbar: bool, copy_flash: Option<(u16, u16, Instant)>, tab_dragging: Option<usize>, transparent_tab_bar: bool, title_bar_height: f32, header_opacity: f32, search_highlights: &[(u32, u16, u16)], search_current: Option<(u32, u16, u16)>, search_bar: Option<(&str, usize, usize)>) -> bool {
     let tab = match tabs.active_tab() {
         Some(t) => t,
         None => return false,
@@ -1394,6 +1492,59 @@ fn render_with_tabs(drawer: &mut GpuDrawer, tabs: &TabManager, preedit: &str, se
                 if cmd.row >= flash_start && cmd.row <= flash_end {
                     std::mem::swap(&mut cmd.fg, &mut cmd.bg);
                 }
+            }
+        }
+    }
+
+    // Search highlights: yellow background for all matches
+    for &(abs_row, start_col, end_col) in search_highlights {
+        if abs_row >= view_base && abs_row < view_base + visible_rows as u32 {
+            let screen_row = (abs_row - view_base) as u16;
+            for cmd in commands.iter_mut() {
+                if cmd.row == screen_row && cmd.col >= start_col && cmd.col < end_col {
+                    cmd.bg = growterm_types::Rgb { r: 100, g: 100, b: 0 };
+                    cmd.fg = growterm_types::Rgb { r: 255, g: 255, b: 255 };
+                }
+            }
+        }
+    }
+
+    // Current search match: brighter highlight (orange)
+    if let Some((abs_row, start_col, end_col)) = search_current {
+        if abs_row >= view_base && abs_row < view_base + visible_rows as u32 {
+            let screen_row = (abs_row - view_base) as u16;
+            for cmd in commands.iter_mut() {
+                if cmd.row == screen_row && cmd.col >= start_col && cmd.col < end_col {
+                    cmd.bg = growterm_types::Rgb { r: 200, g: 120, b: 0 };
+                    cmd.fg = growterm_types::Rgb { r: 255, g: 255, b: 255 };
+                }
+            }
+        }
+    }
+
+    // Search bar: render query text on the bottom row
+    if let Some((query, match_count, current_idx)) = search_bar {
+        let last_row = visible_rows.saturating_sub(1);
+        // Clear last row
+        for cmd in commands.iter_mut() {
+            if cmd.row == last_row {
+                cmd.character = ' ';
+                cmd.bg = growterm_types::Rgb { r: 40, g: 40, b: 40 };
+                cmd.fg = growterm_types::Rgb { r: 200, g: 200, b: 200 };
+            }
+        }
+        // Write search bar text
+        let bar_text = if match_count > 0 {
+            format!("/{} [{}/{}]", query, current_idx + 1, match_count)
+        } else if query.is_empty() {
+            "/".to_string()
+        } else {
+            format!("/{} [no match]", query)
+        };
+        for (i, c) in bar_text.chars().enumerate() {
+            if let Some(cmd) = commands.iter_mut().find(|cmd| cmd.row == last_row && cmd.col == i as u16) {
+                cmd.character = c;
+                cmd.fg = growterm_types::Rgb { r: 255, g: 255, b: 255 };
             }
         }
     }

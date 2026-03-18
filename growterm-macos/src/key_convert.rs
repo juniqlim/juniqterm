@@ -41,6 +41,7 @@ pub mod keycode {
     pub const ANSI_K: u16 = 0x28;
     pub const ANSI_L: u16 = 0x25;
     pub const ANSI_D: u16 = 0x02;
+    pub const ANSI_F: u16 = 0x03;
     pub const ANSI_U: u16 = 0x20;
     pub const ANSI_N: u16 = 0x2D;
     pub const ANSI_O: u16 = 0x1F;
