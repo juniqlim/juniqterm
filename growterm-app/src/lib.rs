@@ -6,4 +6,5 @@ pub mod response_timer;
 pub mod selection;
 pub mod tab;
 pub mod url;
+pub mod search_mode;
 pub mod zoom;

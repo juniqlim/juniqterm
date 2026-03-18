@@ -2,6 +2,7 @@ mod app;
 mod config;
 mod copy_mode;
 mod ink_workaround;
+mod search_mode;
 mod pomodoro;
 mod response_timer;
 #[allow(dead_code)]
