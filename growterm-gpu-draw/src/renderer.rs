@@ -1188,6 +1188,7 @@ impl GpuDrawer {
         // If the glyph would overflow the texture vertically, reset the atlas
         if self.atlas_cursor_y + h > self.glyph_texture_size {
             self.glyph_regions.clear();
+            self.tab_glyph_regions.clear();
             self.atlas_cursor_x = 0;
             self.atlas_cursor_y = 0;
             self.atlas_row_height = 0;
