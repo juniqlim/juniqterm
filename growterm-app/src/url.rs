@@ -33,6 +33,7 @@ pub fn find_all_urls(text: &str) -> Vec<&str> {
 
 /// Find the column (character index) range of a URL at the given column position.
 /// Returns (start_col, end_col) character indices if `col` falls within a URL range.
+#[cfg(test)]
 pub fn find_url_range_at(text: &str, col: usize) -> Option<(usize, usize)> {
     let byte_col = char_to_byte(text, col)?;
     let (byte_start, byte_end) = find_url_byte_range_at(text, byte_col)?;
@@ -60,6 +61,7 @@ fn char_to_byte(text: &str, char_idx: usize) -> Option<usize> {
 }
 
 /// Convert byte offset to character index.
+#[cfg(test)]
 fn byte_to_char(text: &str, byte_offset: usize) -> usize {
     text[..byte_offset].chars().count()
 }
