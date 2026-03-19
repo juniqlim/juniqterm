@@ -949,6 +949,22 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                     if let Some(f) = flog.as_mut() { f.log("skip_sync_output"); }
                     continue;
                 }
+                // Adjust copy mode cursor/selection when scrollback grows from new output
+                if copy_mode.active {
+                    if let Some(tab) = tabs.active_tab() {
+                        let growth = tab.terminal.lock().unwrap().grid.drain_scrollback_growth();
+                        if growth > 0 {
+                            let delta = growth as u32;
+                            copy_mode.cursor.0 += delta;
+                            copy_mode.anchor_row += delta;
+                            sel.start.0 += delta;
+                            sel.end.0 += delta;
+                        }
+                    }
+                } else if let Some(tab) = tabs.active_tab() {
+                    // Drain even when not in copy mode to avoid stale accumulation
+                    tab.terminal.lock().unwrap().grid.drain_scrollback_growth();
+                }
                 let was_dirty = tabs
                     .active_tab()
                     .map_or(false, |t| t.dirty.swap(false, Ordering::Relaxed));
