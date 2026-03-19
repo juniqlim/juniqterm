@@ -309,16 +309,18 @@ impl Grid {
 
     fn scroll_up(&mut self) {
         let row = self.cells.remove(0);
-        self.scrollback.push(row);
-        if self.scrollback.len() > MAX_SCROLLBACK {
-            self.scrollback.remove(0);
-            self.scroll_offset = self.scroll_offset.min(self.scrollback.len());
+        if !self.in_alt_screen {
+            self.scrollback.push(row);
+            if self.scrollback.len() > MAX_SCROLLBACK {
+                self.scrollback.remove(0);
+                self.scroll_offset = self.scroll_offset.min(self.scrollback.len());
+            }
+            if self.scroll_offset > 0 {
+                self.scroll_offset += 1;
+                self.scroll_offset = self.scroll_offset.min(self.scrollback.len());
+            }
         }
         self.cells.push(vec![Cell::default(); self.cols]);
-        if self.scroll_offset > 0 {
-            self.scroll_offset += 1;
-            self.scroll_offset = self.scroll_offset.min(self.scrollback.len());
-        }
     }
 
     fn scroll_region_up(&mut self, n: u16) {
@@ -335,8 +337,8 @@ impl Grid {
         let blank = vec![Cell::default(); self.cols];
         for _ in 0..n {
             let removed = self.cells.remove(top);
-            if top == 0 || self.in_alt_screen {
-                // Line scrolled off the top of screen (or alt screen) - save to scrollback
+            if top == 0 && !self.in_alt_screen {
+                // Line scrolled off the top of screen - save to scrollback
                 self.scrollback.push(removed);
                 if self.scrollback.len() > MAX_SCROLLBACK {
                     self.scrollback.remove(0);
@@ -394,7 +396,8 @@ impl Grid {
 
     fn leave_alt_screen(&mut self) {
         if let Some(saved) = self.saved_screen.take() {
-            let alt_scrollback = std::mem::take(&mut self.scrollback);
+            // Discard alt screen scrollback - standard terminals do not
+            // merge alt screen output into the primary scrollback buffer.
             self.cells = saved.cells;
             self.cursor_row = saved.cursor_row;
             self.cursor_col = saved.cursor_col;
@@ -402,7 +405,6 @@ impl Grid {
             self.current_bg = saved.current_bg;
             self.current_flags = saved.current_flags;
             self.scrollback = saved.scrollback;
-            self.scrollback.extend(alt_scrollback);
             self.scroll_offset = saved.scroll_offset;
             self.cursor_visible = saved.cursor_visible;
         }

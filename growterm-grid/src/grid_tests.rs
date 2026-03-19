@@ -1044,11 +1044,9 @@ fn alt_screen_scroll_saves_to_scrollback() {
     // Newline at bottom row triggers scroll
     grid.apply(&TerminalCommand::CursorPosition { row: 3, col: 1 });
     grid.apply(&TerminalCommand::Newline);
-    // Leave alt screen - scrollback should contain the scrolled-out line
+    // Leave alt screen - alt screen content should NOT be in scrollback
     grid.apply(&TerminalCommand::LeaveAltScreen);
-    assert!(grid.scrollback_len() >= 1);
-    let last = &grid.scrollback()[grid.scrollback_len() - 1];
-    assert_eq!(last[0].character, 'A');
+    assert_eq!(grid.scrollback_len(), 0);
 }
 
 #[test]
@@ -1067,11 +1065,9 @@ fn alt_screen_scroll_region_saves_to_scrollback() {
     // Scroll within region
     grid.apply(&TerminalCommand::CursorPosition { row: 4, col: 1 });
     grid.apply(&TerminalCommand::Newline);
-    // The "BBBBB" line that scrolled out of the region should be saved
+    // Alt screen scroll region content should NOT be in scrollback
     grid.apply(&TerminalCommand::LeaveAltScreen);
-    assert!(grid.scrollback_len() >= 1);
-    let last = &grid.scrollback()[grid.scrollback_len() - 1];
-    assert_eq!(last[0].character, 'B');
+    assert_eq!(grid.scrollback_len(), 0);
 }
 
 #[test]
@@ -1105,10 +1101,9 @@ fn alt_screen_scrollback_appended_after_original() {
     grid.apply(&TerminalCommand::Newline);
 
     grid.apply(&TerminalCommand::LeaveAltScreen);
-    // Original scrollback + alt screen scrollback
-    assert!(grid.scrollback_len() > original_sb_len);
+    // Only original scrollback should remain - alt screen content discarded
+    assert_eq!(grid.scrollback_len(), original_sb_len);
     assert_eq!(grid.scrollback()[0][0].character, 'A');
-    assert_eq!(grid.scrollback()[original_sb_len][0].character, 'X');
 }
 
 // === Cursor Column (CHA) / Cursor Row (VPA) ===
