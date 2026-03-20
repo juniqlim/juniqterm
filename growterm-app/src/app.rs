@@ -732,6 +732,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                             drop(state);
                         }
                     }
+                    sel.clear();
                     hover_url_ranges.clear();
                     window.request_redraw();
                     continue;
@@ -816,12 +817,14 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                     }
                 }
 
-                let (screen_row, col) =
-                    selection::mouse_pixel_to_cell(x as f32, y as f32, cw, ch, tabs.mouse_y_offset(drawer.tab_bar_height(), title_bar_height, has_scrollback));
-                let abs_row = screen_to_abs_row(&tabs, screen_row);
-                sel.update(abs_row, col);
-                sel.finish();
-                window.request_redraw();
+                if sel.active {
+                    let (screen_row, col) =
+                        selection::mouse_pixel_to_cell(x as f32, y as f32, cw, ch, tabs.mouse_y_offset(drawer.tab_bar_height(), title_bar_height, has_scrollback));
+                    let abs_row = screen_to_abs_row(&tabs, screen_row);
+                    sel.update(abs_row, col);
+                    sel.finish();
+                    window.request_redraw();
+                }
             }
             AppEvent::MouseMoved(x, y, modifiers) => {
                 let new_ranges: Vec<(u32, u16, u16)> = if modifiers.contains(Modifiers::SUPER) {
