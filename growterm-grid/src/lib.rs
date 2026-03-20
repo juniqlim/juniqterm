@@ -45,8 +45,6 @@ pub struct Grid {
     saved_cursor: Option<(usize, usize)>,
     saved_screen: Option<SavedScreen>,
     in_alt_screen: bool,
-    /// Number of lines added to scrollback since last drain (for copy mode cursor adjustment).
-    scrollback_growth: usize,
 }
 
 impl Grid {
@@ -70,7 +68,6 @@ impl Grid {
             saved_cursor: None,
             saved_screen: None,
             in_alt_screen: false,
-            scrollback_growth: 0,
         }
     }
 
@@ -314,7 +311,6 @@ impl Grid {
         let row = self.cells.remove(0);
         if !self.in_alt_screen {
             self.scrollback.push(row);
-            self.scrollback_growth += 1;
             if self.scrollback.len() > MAX_SCROLLBACK {
                 self.scrollback.remove(0);
                 self.scroll_offset = self.scroll_offset.min(self.scrollback.len());
@@ -344,7 +340,6 @@ impl Grid {
             if top == 0 && !self.in_alt_screen {
                 // Line scrolled off the top of screen - save to scrollback
                 self.scrollback.push(removed);
-                self.scrollback_growth += 1;
                 if self.scrollback.len() > MAX_SCROLLBACK {
                     self.scrollback.remove(0);
                     self.scroll_offset = self.scroll_offset.min(self.scrollback.len());
@@ -499,13 +494,6 @@ impl Grid {
 
     pub fn scrollback(&self) -> &[Vec<Cell>] {
         &self.scrollback
-    }
-
-    /// Returns and resets the number of lines added to scrollback since last drain.
-    pub fn drain_scrollback_growth(&mut self) -> usize {
-        let g = self.scrollback_growth;
-        self.scrollback_growth = 0;
-        g
     }
 
     pub fn visible_cells(&self) -> std::borrow::Cow<'_, Vec<Vec<Cell>>> {
