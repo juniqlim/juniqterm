@@ -160,7 +160,10 @@ pub fn extract_text(cells: &[Vec<Cell>], selection: &Selection) -> String {
         result.push_str(line_text.trim_end());
 
         if row < er {
-            result.push('\n');
+            // Skip newline for soft-wrapped rows (last cell is non-space/non-null)
+            if !is_row_wrapped(line) {
+                result.push('\n');
+            }
         }
     }
     result
@@ -264,7 +267,9 @@ pub fn extract_text_absolute(grid: &growterm_grid::Grid, selection: &Selection) 
         result.push_str(line_text.trim_end());
 
         if row < er {
-            result.push('\n');
+            if !is_row_wrapped(line) {
+                result.push('\n');
+            }
         }
     }
     result
@@ -739,6 +744,32 @@ mod tests {
         sel.start = (0, 6);
         sel.end = (0, 10);
         assert_eq!(extract_text(&cells, &sel), "World");
+    }
+
+    #[test]
+    fn extract_text_soft_wrapped_lines_no_newline() {
+        // Simulate a 10-col terminal with "hello world!" wrapped across 2 rows
+        // Row 0: "helloworld" (last char non-space → wrapped)
+        // Row 1: "!         "
+        let cells = make_cells(&["helloworld", "!         "]);
+        let mut sel = Selection::default();
+        sel.start = (0, 0);
+        sel.end = (1, 0);
+        sel.active = true;
+        // Should NOT have a newline between wrapped rows
+        assert_eq!(extract_text(&cells, &sel), "helloworld!");
+    }
+
+    #[test]
+    fn extract_text_hard_newline_keeps_newline() {
+        // Row 0: "hello     " (last char is space → not wrapped, real newline)
+        // Row 1: "world     "
+        let cells = make_cells(&["hello     ", "world     "]);
+        let mut sel = Selection::default();
+        sel.start = (0, 0);
+        sel.end = (1, 4);
+        sel.active = true;
+        assert_eq!(extract_text(&cells, &sel), "hello\nworld");
     }
 
     #[test]
