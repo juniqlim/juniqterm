@@ -1381,3 +1381,65 @@ fn wrap_cursor_respects_scroll_region() {
     assert_eq!(grid.cells()[5][1].character, 'I');
     assert_eq!(grid.cells()[5][2].character, 'X');
 }
+
+// === Alt screen resize should not leak scrollback ===
+
+#[test]
+fn resize_shrink_in_alt_screen_does_not_add_to_scrollback() {
+    let mut grid = Grid::new(80, 24);
+    // Write some content to primary screen and generate scrollback
+    for i in 0..30 {
+        for c in format!("line{}", i).chars() {
+            grid.apply(&TerminalCommand::Print(c));
+        }
+        grid.apply(&TerminalCommand::Newline);
+        grid.apply(&TerminalCommand::CarriageReturn);
+    }
+    let primary_scrollback = grid.scrollback_len();
+    assert!(primary_scrollback > 0);
+
+    // Enter alt screen
+    grid.apply(&TerminalCommand::EnterAltScreen);
+    assert_eq!(grid.scrollback_len(), 0, "alt screen should have empty scrollback");
+
+    // Write content to alt screen
+    for c in "alt content".chars() {
+        grid.apply(&TerminalCommand::Print(c));
+    }
+
+    // Resize smaller - should NOT push to scrollback
+    grid.resize(80, 20);
+    assert_eq!(grid.scrollback_len(), 0, "shrink in alt screen should not add to scrollback");
+
+    // Resize back larger - should NOT restore from scrollback
+    grid.resize(80, 24);
+    assert_eq!(grid.scrollback_len(), 0, "expand in alt screen should not restore from scrollback");
+}
+
+#[test]
+fn resize_in_alt_screen_does_not_corrupt_visible_cells() {
+    let mut grid = Grid::new(80, 10);
+    // Fill primary scrollback
+    for i in 0..20 {
+        for c in format!("primary{}", i).chars() {
+            grid.apply(&TerminalCommand::Print(c));
+        }
+        grid.apply(&TerminalCommand::Print('\n'));
+    }
+
+    grid.apply(&TerminalCommand::EnterAltScreen);
+
+    // Write to alt screen
+    for c in "ALT".chars() {
+        grid.apply(&TerminalCommand::Print(c));
+    }
+
+    // Resize shrink then expand
+    grid.resize(80, 5);
+    grid.resize(80, 10);
+
+    // visible_cells should show alt screen content, not primary scrollback
+    let vis = grid.visible_cells();
+    let first_row_text: String = vis[0].iter().map(|c| c.character).collect::<String>();
+    assert!(!first_row_text.contains("primary"), "primary scrollback leaked into alt screen visible cells");
+}

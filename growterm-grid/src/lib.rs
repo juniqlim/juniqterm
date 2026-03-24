@@ -4,13 +4,13 @@ use std::io::Write;
 
 const MAX_SCROLLBACK: usize = 10_000;
 
-// 디버깅 시 /tmp/growterm-debug.log 에 로그 남길 때 사용
+// 디버깅 시 /Users/juniq/growterm-debug.log 에 로그 남길 때 사용
 #[allow(dead_code)]
 fn debug_log(msg: &str) {
     if let Ok(mut f) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open("/tmp/growterm-debug.log")
+        .open("/Users/juniq/growterm-debug.log")
     {
         let _ = writeln!(f, "{}", msg);
     }
@@ -88,6 +88,11 @@ impl Grid {
     }
 
     pub fn apply(&mut self, cmd: &TerminalCommand) {
+        use std::sync::atomic::{AtomicBool, Ordering as AO};
+        static LOGGED_ONCE: AtomicBool = AtomicBool::new(false);
+        if !LOGGED_ONCE.swap(true, AO::Relaxed) {
+            debug_log("apply() called - logging works");
+        }
         match cmd {
             TerminalCommand::Print(c) => self.print(*c),
             TerminalCommand::CursorUp(n) => {
@@ -164,8 +169,15 @@ impl Grid {
             TerminalCommand::SetScrollRegion { top, bottom } => {
                 self.set_scroll_region(*top, *bottom);
             }
-            TerminalCommand::EnterAltScreen => self.enter_alt_screen(),
-            TerminalCommand::LeaveAltScreen => self.leave_alt_screen(),
+            TerminalCommand::EnterAltScreen => {
+                debug_log(&format!("EnterAltScreen in_alt={} scrollback={} cells={}", self.in_alt_screen, self.scrollback.len(), self.cells.len()));
+                self.enter_alt_screen();
+            }
+            TerminalCommand::LeaveAltScreen => {
+                debug_log(&format!("LeaveAltScreen in_alt={} scrollback={} cells={}", self.in_alt_screen, self.scrollback.len(), self.cells.len()));
+                self.leave_alt_screen();
+                debug_log(&format!("  after leave: scrollback={} scroll_offset={}", self.scrollback.len(), self.scroll_offset));
+            }
             TerminalCommand::EraseInLine(mode) => self.erase_in_line(*mode),
             TerminalCommand::EraseInDisplay(mode) => self.erase_in_display(*mode),
         }
@@ -188,7 +200,9 @@ impl Grid {
             let removable = rows_to_remove.min(self.cursor_row);
             for _ in 0..removable {
                 let row = self.cells.remove(0);
-                self.scrollback.push(row);
+                if !self.in_alt_screen {
+                    self.scrollback.push(row);
+                }
             }
             self.cursor_row -= removable;
             // Truncate remaining excess from bottom
@@ -198,14 +212,16 @@ impl Grid {
                 self.scrollback.remove(0);
             }
         } else if new_rows > old_rows {
-            // Expand: restore rows from scrollback to top
+            // Expand: restore rows from scrollback to top (primary screen only)
             let rows_to_add = new_rows - old_rows;
-            let restore = rows_to_add.min(self.scrollback.len());
-            for _ in 0..restore {
-                let row = self.scrollback.pop().unwrap();
-                self.cells.insert(0, row);
+            if !self.in_alt_screen {
+                let restore = rows_to_add.min(self.scrollback.len());
+                for _ in 0..restore {
+                    let row = self.scrollback.pop().unwrap();
+                    self.cells.insert(0, row);
+                }
+                self.cursor_row += restore;
             }
-            self.cursor_row += restore;
             // Fill remaining with blank rows at bottom
             self.cells.resize(new_rows, vec![Cell::default(); new_cols]);
         }
@@ -499,6 +515,9 @@ impl Grid {
     pub fn visible_cells(&self) -> std::borrow::Cow<'_, Vec<Vec<Cell>>> {
         if self.scroll_offset == 0 {
             return std::borrow::Cow::Borrowed(&self.cells);
+        }
+        if self.in_alt_screen {
+            debug_log(&format!("WARNING: visible_cells with scroll_offset={} in alt screen, scrollback={}", self.scroll_offset, self.scrollback.len()));
         }
         let sb_len = self.scrollback.len();
         let sb_start = sb_len.saturating_sub(self.scroll_offset);
