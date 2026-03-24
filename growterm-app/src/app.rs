@@ -52,7 +52,7 @@ impl FreezeLog {
     }
 }
 use crate::copy_mode::CopyMode;
-use crate::ink_workaround::InkImeState;
+use crate::ink_workaround::{detect_tui_app, InkImeState};
 use crate::pomodoro::{Pomodoro, TickResult};
 use crate::search_mode::SearchMode;
 use crate::selection::{self, Selection};
@@ -502,7 +502,10 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                     if keycode == kc::ANSI_A {
                         if let Some(tab) = tabs.active_tab() {
                             let state = tab.terminal.lock().unwrap();
-                            let (text, flash_start, flash_end) = selection::input_line_text(&state.grid);
+                            let child_pid = tab.pty_writer.child_pid();
+                            let app = detect_tui_app(child_pid);
+                            let (text, flash_start, flash_end) =
+                                selection::input_line_text(&state.grid, app);
                             drop(state);
                             copy_to_clipboard(&text);
                             copy_flash = Some((flash_start, flash_end, Instant::now()));

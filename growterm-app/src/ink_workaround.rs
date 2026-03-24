@@ -5,6 +5,29 @@
 use growterm_types::{Cell, CellFlags};
 
 const CLAUDE_PROCESS_NAME: &str = "claude";
+const CODEX_PROCESS_NAME: &str = "codex";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TuiApp {
+    Claude,
+    Codex,
+    Unknown,
+}
+
+pub fn detect_tui_app(child_pid: Option<u32>) -> TuiApp {
+    detect_tui_app_with(child_pid, has_descendant_named)
+}
+
+fn detect_tui_app_with(
+    child_pid: Option<u32>,
+    checker: impl Fn(u32, &str) -> bool,
+) -> TuiApp {
+    match child_pid {
+        Some(pid) if checker(pid, CLAUDE_PROCESS_NAME) => TuiApp::Claude,
+        Some(pid) if checker(pid, CODEX_PROCESS_NAME) => TuiApp::Codex,
+        _ => TuiApp::Unknown,
+    }
+}
 
 pub struct InkImeState {
     ink_app_cached: Option<bool>,
@@ -489,6 +512,18 @@ mod tests {
         let mut state = InkImeState::new();
         state.on_preedit_with(Some(1), |_, _| true);
         assert!(state.is_active());
+    }
+
+    #[test]
+    fn detect_tui_app_detects_codex() {
+        let app = detect_tui_app_with(Some(1), |_, name| name == CODEX_PROCESS_NAME);
+        assert_eq!(app, TuiApp::Codex);
+    }
+
+    #[test]
+    fn detect_tui_app_prefers_claude_when_both_match() {
+        let app = detect_tui_app_with(Some(1), |_, _| true);
+        assert_eq!(app, TuiApp::Claude);
     }
 
     #[test]
