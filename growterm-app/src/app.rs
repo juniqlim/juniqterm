@@ -138,10 +138,30 @@ fn should_enter_copy_mode_from_text(text: &str) -> bool {
 fn should_enter_copy_mode_from_key_input(
     keycode: u16,
     modifiers: Modifiers,
+    event_type: growterm_macos::KeyEventType,
 ) -> bool {
     use growterm_macos::key_convert::keycode as kc;
 
-    keycode == kc::ANSI_GRAVE && modifiers.is_empty()
+    keycode == kc::ANSI_GRAVE
+        && modifiers.is_empty()
+        && event_type == growterm_macos::KeyEventType::Press
+}
+
+fn should_handle_copy_mode_action(event_type: growterm_macos::KeyEventType) -> bool {
+    event_type != growterm_macos::KeyEventType::Release
+}
+
+fn should_handle_copy_mode_action_for_event(
+    action: CopyModeAction,
+    event_type: growterm_macos::KeyEventType,
+) -> bool {
+    if !should_handle_copy_mode_action(event_type) {
+        return false;
+    }
+    match action {
+        CopyModeAction::Exit => event_type == growterm_macos::KeyEventType::Press,
+        _ => true,
+    }
 }
 
 fn enter_copy_mode(copy_mode: &mut CopyMode, sel: &mut Selection, window: &MacWindow, tabs: &TabManager) {
@@ -678,7 +698,9 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                     continue;
                 }
 
-                if should_enter_copy_mode_from_key_input(keycode, modifiers) && !copy_mode.active {
+                if should_enter_copy_mode_from_key_input(keycode, modifiers, event_type)
+                    && !copy_mode.active
+                {
                     enter_copy_mode(&mut copy_mode, &mut sel, &window, &tabs);
                     do_render!();
                     continue;
@@ -697,7 +719,13 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                         sb_len + screen_rows - 1
                     });
 
-                    if let Some(action) = copy_mode_action_map.get(&keycode) {
+                    if should_handle_copy_mode_action(event_type) {
+                        if let Some(action) = copy_mode_action_map.get(&keycode) {
+                        if !should_handle_copy_mode_action_for_event(*action, event_type) {
+                            scrollbar_visible_until = Some(Instant::now() + SCROLLBAR_SHOW_DURATION);
+                            do_render!(scrollbar: true);
+                            continue;
+                        }
                         match action {
                             CopyModeAction::Down => {
                                 copy_mode.move_down(cols, max_row, &mut sel);
@@ -748,6 +776,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                                 exit_copy_mode(&mut copy_mode, &mut sel, &window, &tabs);
                             }
                         }
+                    }
                     }
 
                     // 커서 행이 화면에 보이도록 스크롤 조정 (복사모드 활성 중에만)
@@ -1649,6 +1678,7 @@ mod tests {
         assert!(should_enter_copy_mode_from_key_input(
             growterm_macos::key_convert::keycode::ANSI_GRAVE,
             Modifiers::empty(),
+            growterm_macos::KeyEventType::Press,
         ));
     }
 
@@ -1657,10 +1687,52 @@ mod tests {
         assert!(!should_enter_copy_mode_from_key_input(
             growterm_macos::key_convert::keycode::ANSI_GRAVE,
             Modifiers::SHIFT,
+            growterm_macos::KeyEventType::Press,
         ));
         assert!(!should_enter_copy_mode_from_key_input(
             growterm_macos::key_convert::keycode::ANSI_GRAVE,
             Modifiers::ALT,
+            growterm_macos::KeyEventType::Press,
+        ));
+    }
+
+    #[test]
+    fn grave_key_release_does_not_enter_copy_mode() {
+        assert!(!should_enter_copy_mode_from_key_input(
+            growterm_macos::key_convert::keycode::ANSI_GRAVE,
+            Modifiers::empty(),
+            growterm_macos::KeyEventType::Release,
+        ));
+    }
+
+    #[test]
+    fn copy_mode_actions_ignore_key_release() {
+        assert!(should_handle_copy_mode_action(growterm_macos::KeyEventType::Press));
+        assert!(should_handle_copy_mode_action(growterm_macos::KeyEventType::Repeat));
+        assert!(!should_handle_copy_mode_action(growterm_macos::KeyEventType::Release));
+    }
+
+    #[test]
+    fn copy_mode_exit_only_handles_press() {
+        assert!(should_handle_copy_mode_action_for_event(
+            CopyModeAction::Exit,
+            growterm_macos::KeyEventType::Press,
+        ));
+        assert!(!should_handle_copy_mode_action_for_event(
+            CopyModeAction::Exit,
+            growterm_macos::KeyEventType::Repeat,
+        ));
+        assert!(!should_handle_copy_mode_action_for_event(
+            CopyModeAction::Exit,
+            growterm_macos::KeyEventType::Release,
+        ));
+    }
+
+    #[test]
+    fn copy_mode_navigation_allows_repeat() {
+        assert!(should_handle_copy_mode_action_for_event(
+            CopyModeAction::Down,
+            growterm_macos::KeyEventType::Repeat,
         ));
     }
 
