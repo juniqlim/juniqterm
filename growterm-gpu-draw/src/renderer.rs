@@ -564,12 +564,19 @@ impl GpuDrawer {
                 color,
             });
 
-            // Underline: thin rect at cell bottom using fg color
+            // Underline: thin rect at cell bottom, use underline_color if set, else fg
             if cmd.flags.contains(CellFlags::UNDERLINE) {
                 let underline_h = (cell_h * 0.07).max(1.0);
                 let underline_y = y + cell_h - underline_h;
+                let ul_color = rgb_to_f32a(cmd.underline_color.unwrap_or(cmd.fg));
+                push_bg_rect(&mut bg_vertices, x, underline_y, w, underline_h, ul_color);
+            }
+
+            // Overline: thin rect at cell top, use fg color
+            if cmd.flags.contains(CellFlags::OVERLINE) {
+                let overline_h = (cell_h * 0.07).max(1.0);
                 let fg_color = rgb_to_f32a(cmd.fg);
-                push_bg_rect(&mut bg_vertices, x, underline_y, w, underline_h, fg_color);
+                push_bg_rect(&mut bg_vertices, x, y, w, overline_h, fg_color);
             }
 
             // Strikethrough: thin rect at cell vertical center using fg color
@@ -1434,6 +1441,7 @@ mod tests {
             character,
             fg: Rgb::new(255, 255, 255),
             bg: Rgb::new(0, 0, 0),
+            underline_color: None,
             flags: CellFlags::empty(),
         }
     }

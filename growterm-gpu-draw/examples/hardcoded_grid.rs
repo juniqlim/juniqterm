@@ -25,6 +25,7 @@ fn build_hardcoded_commands() -> Vec<RenderCommand> {
             character: c,
             fg: green,
             bg: blue_bg,
+            underline_color: None,
             flags: empty,
         });
     }
@@ -37,6 +38,7 @@ fn build_hardcoded_commands() -> Vec<RenderCommand> {
             character: (b'A' + i as u8) as char,
             fg: white,
             bg: black,
+            underline_color: None,
             flags: empty,
         });
     }
@@ -52,6 +54,7 @@ fn build_hardcoded_commands() -> Vec<RenderCommand> {
             character: c,
             fg: red,
             bg: black,
+            underline_color: None,
             flags: if wide { CellFlags::WIDE_CHAR } else { empty },
         });
         col += if wide { 2 } else { 1 };
@@ -66,6 +69,7 @@ fn build_hardcoded_commands() -> Vec<RenderCommand> {
             character: c,
             fg: white,
             bg: black,
+            underline_color: None,
             flags: CellFlags::BOLD,
         });
     }

@@ -720,6 +720,7 @@ mod tests {
                         character: c,
                         fg: Color::Default,
                         bg: Color::Default,
+                        underline_color: Color::Default,
                         flags: CellFlags::empty(),
                     })
                     .collect()
@@ -740,6 +741,7 @@ mod tests {
                         character: c,
                         fg: Color::Default,
                         bg: Color::Default,
+                        underline_color: Color::Default,
                         flags: if w == 2 { CellFlags::WIDE_CHAR } else { CellFlags::empty() },
                     });
                     if w == 2 {
@@ -1063,6 +1065,7 @@ mod tests {
                 character: c,
                 fg: Color::Default,
                 bg: Color::Default,
+                underline_color: Color::Default,
                 flags: CellFlags::empty(),
             });
         }

@@ -25,6 +25,7 @@ fn no_gap_between_same_color_cells() {
                 character: ' ',
                 fg: black,
                 bg: white,
+                underline_color: None,
                 flags: CellFlags::empty(),
             });
         }

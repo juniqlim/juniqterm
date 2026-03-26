@@ -175,6 +175,40 @@ fn reset_attributes_clears_all() {
     assert!(cell.flags.is_empty());
 }
 
+#[test]
+fn overline_flag() {
+    let mut grid = Grid::new(80, 24);
+    grid.apply(&TerminalCommand::SetOverline);
+    grid.apply(&TerminalCommand::Print('O'));
+    assert!(grid.cells()[0][0].flags.contains(CellFlags::OVERLINE));
+    grid.apply(&TerminalCommand::ResetOverline);
+    grid.apply(&TerminalCommand::Print('N'));
+    assert!(!grid.cells()[0][1].flags.contains(CellFlags::OVERLINE));
+}
+
+#[test]
+fn underline_color_applied() {
+    let mut grid = Grid::new(80, 24);
+    grid.apply(&TerminalCommand::SetUnderlineColor(Color::Rgb(Rgb::new(255, 0, 0))));
+    grid.apply(&TerminalCommand::Print('R'));
+    assert_eq!(grid.cells()[0][0].underline_color, Color::Rgb(Rgb::new(255, 0, 0)));
+    grid.apply(&TerminalCommand::ResetUnderlineColor);
+    grid.apply(&TerminalCommand::Print('D'));
+    assert_eq!(grid.cells()[0][1].underline_color, Color::Default);
+}
+
+#[test]
+fn reset_attributes_clears_overline_and_underline_color() {
+    let mut grid = Grid::new(80, 24);
+    grid.apply(&TerminalCommand::SetOverline);
+    grid.apply(&TerminalCommand::SetUnderlineColor(Color::Indexed(196)));
+    grid.apply(&TerminalCommand::ResetAttributes);
+    grid.apply(&TerminalCommand::Print('X'));
+    let cell = &grid.cells()[0][0];
+    assert!(!cell.flags.contains(CellFlags::OVERLINE));
+    assert_eq!(cell.underline_color, Color::Default);
+}
+
 // === Step 5: Cursor movement ===
 
 #[test]

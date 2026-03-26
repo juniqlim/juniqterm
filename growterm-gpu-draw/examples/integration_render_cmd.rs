@@ -19,6 +19,7 @@ fn build_grid() -> Vec<Vec<Cell>> {
             character: c,
             fg: Color::Rgb(Rgb::new(0, 200, 0)),
             bg: Color::Rgb(Rgb::new(30, 30, 80)),
+            underline_color: Color::Default,
             flags: CellFlags::empty(),
         })
         .collect();
@@ -30,6 +31,7 @@ fn build_grid() -> Vec<Vec<Cell>> {
             character: (b'0' + i) as char,
             fg: Color::Indexed(15), // bright white
             bg: Color::Indexed(i),
+            underline_color: Color::Default,
             flags: CellFlags::empty(),
         })
         .collect();
@@ -43,6 +45,7 @@ fn build_grid() -> Vec<Vec<Cell>> {
             character: c,
             fg: Color::Indexed(1), // red
             bg: Color::Default,
+            underline_color: Color::Default,
             flags: if wide {
                 CellFlags::WIDE_CHAR
             } else {
@@ -59,6 +62,7 @@ fn build_grid() -> Vec<Vec<Cell>> {
             character: c,
             fg: Color::Rgb(Rgb::new(255, 255, 255)),
             bg: Color::Rgb(Rgb::new(0, 0, 0)),
+            underline_color: Color::Default,
             flags: CellFlags::INVERSE,
         })
         .collect();
@@ -71,6 +75,7 @@ fn build_grid() -> Vec<Vec<Cell>> {
             character: c,
             fg: Color::Rgb(Rgb::new(200, 200, 200)),
             bg: Color::Default,
+            underline_color: Color::Default,
             flags: CellFlags::DIM,
         })
         .collect();

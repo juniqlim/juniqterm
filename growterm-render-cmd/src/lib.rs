@@ -184,12 +184,18 @@ pub fn generate_with_offset(
                 fg = bg;
             }
 
+            let underline_color = match cell.underline_color {
+                Color::Default => None,
+                c => Some(resolve_color(c, palette.default_fg)),
+            };
+
             commands.push(RenderCommand {
                 col: col as u16,
                 row: row as u16 + row_offset,
                 character: cell.character,
                 fg,
                 bg,
+                underline_color,
                 flags: cell.flags,
             });
 
@@ -217,6 +223,7 @@ pub fn generate_with_offset(
                 character: ch,
                 fg: palette.default_bg,
                 bg: palette.default_fg,
+                underline_color: None,
                 flags,
             });
             col += width;
@@ -273,6 +280,7 @@ mod tests {
             character: 'X',
             fg: Color::Rgb(Rgb::new(100, 150, 200)),
             bg: Color::Rgb(Rgb::new(10, 20, 30)),
+            underline_color: Color::Default,
             flags: CellFlags::empty(),
         };
         let cmds = generate(&vec![vec![cell]], None, None, None);
@@ -286,6 +294,7 @@ mod tests {
             character: 'A',
             fg: Color::Indexed(1), // red
             bg: Color::Indexed(4), // blue
+            underline_color: Color::Default,
             flags: CellFlags::empty(),
         };
         let cmds = generate(&vec![vec![cell]], None, None, None);
@@ -300,6 +309,7 @@ mod tests {
             character: 'A',
             fg: Color::Indexed(196),
             bg: Color::Default,
+            underline_color: Color::Default,
             flags: CellFlags::empty(),
         };
         let cmds = generate(&vec![vec![cell]], None, None, None);
@@ -313,6 +323,7 @@ mod tests {
             character: 'A',
             fg: Color::Indexed(232),
             bg: Color::Indexed(255),
+            underline_color: Color::Default,
             flags: CellFlags::empty(),
         };
         let cmds = generate(&vec![vec![cell]], None, None, None);
@@ -326,6 +337,7 @@ mod tests {
             character: 'I',
             fg: Color::Rgb(Rgb::new(255, 255, 255)),
             bg: Color::Rgb(Rgb::new(0, 0, 0)),
+            underline_color: Color::Default,
             flags: CellFlags::INVERSE,
         };
         let cmds = generate(&vec![vec![cell]], None, None, None);
@@ -339,6 +351,7 @@ mod tests {
             character: 'D',
             fg: Color::Rgb(Rgb::new(200, 100, 50)),
             bg: Color::Default,
+            underline_color: Color::Default,
             flags: CellFlags::DIM,
         };
         let cmds = generate(&vec![vec![cell]], None, None, None);
@@ -351,6 +364,7 @@ mod tests {
             character: 'H',
             fg: Color::Rgb(Rgb::new(255, 255, 255)),
             bg: Color::Rgb(Rgb::new(0, 0, 0)),
+            underline_color: Color::Default,
             flags: CellFlags::HIDDEN,
         };
         let cmds = generate(&vec![vec![cell]], None, None, None);
@@ -365,6 +379,7 @@ mod tests {
                 character: '한',
                 fg: Color::Default,
                 bg: Color::Default,
+                underline_color: Color::Default,
                 flags: CellFlags::WIDE_CHAR,
             },
             Cell::default(), // spacer
@@ -372,6 +387,7 @@ mod tests {
                 character: '글',
                 fg: Color::Default,
                 bg: Color::Default,
+                underline_color: Color::Default,
                 flags: CellFlags::WIDE_CHAR,
             },
             Cell::default(), // spacer
@@ -413,6 +429,7 @@ mod tests {
             character: 'A',
             fg: Color::Default,
             bg: Color::Default,
+            underline_color: Color::Default,
             flags: CellFlags::empty(),
         };
         let cells = vec![vec![cell]];
@@ -449,6 +466,7 @@ mod tests {
             character: 'X',
             fg: Color::Rgb(Rgb::new(100, 150, 200)),
             bg: Color::Rgb(Rgb::new(10, 20, 30)),
+            underline_color: Color::Default,
             flags: CellFlags::empty(),
         };
         let cmds = generate(&vec![vec![cell]], Some((0, 0)), None, None);
@@ -463,6 +481,7 @@ mod tests {
             character: 'I',
             fg: Color::Rgb(Rgb::new(255, 255, 255)),
             bg: Color::Rgb(Rgb::new(0, 0, 0)),
+            underline_color: Color::Default,
             flags: CellFlags::INVERSE,
         };
         let cmds = generate(&vec![vec![cell]], Some((0, 0)), None, None);
@@ -477,6 +496,7 @@ mod tests {
                 character: '한',
                 fg: Color::Default,
                 bg: Color::Default,
+                underline_color: Color::Default,
                 flags: CellFlags::WIDE_CHAR,
             },
             Cell::default(), // spacer
@@ -510,6 +530,7 @@ mod tests {
             character: 'D',
             fg: Color::Rgb(Rgb::new(200, 100, 50)),
             bg: Color::Rgb(Rgb::new(40, 60, 80)),
+            underline_color: Color::Default,
             flags: CellFlags::DIM,
         };
         let cmds = generate(&vec![vec![cell]], Some((0, 0)), None, None);
@@ -546,6 +567,7 @@ mod tests {
             character: 'B',
             fg: Color::Default,
             bg: Color::Default,
+            underline_color: Color::Default,
             flags: CellFlags::BOLD | CellFlags::UNDERLINE,
         };
         let cmds = generate(&vec![vec![cell]], None, None, None);
@@ -669,6 +691,7 @@ mod tests {
             character: 'B',
             fg: Color::Indexed(1), // red (204,0,0)
             bg: Color::Default,
+            underline_color: Color::Default,
             flags: CellFlags::BOLD,
         };
         let cmds = generate(&vec![vec![cell]], None, None, None);
@@ -682,6 +705,7 @@ mod tests {
             character: 'B',
             fg: Color::Indexed(9), // bright red (255,0,0)
             bg: Color::Default,
+            underline_color: Color::Default,
             flags: CellFlags::BOLD,
         };
         let cmds = generate(&vec![vec![cell]], None, None, None);
@@ -694,6 +718,7 @@ mod tests {
             character: 'B',
             fg: Color::Rgb(Rgb::new(100, 150, 200)),
             bg: Color::Default,
+            underline_color: Color::Default,
             flags: CellFlags::BOLD,
         };
         let cmds = generate(&vec![vec![cell]], None, None, None);
@@ -706,6 +731,7 @@ mod tests {
             character: 'B',
             fg: Color::Default,
             bg: Color::Default,
+            underline_color: Color::Default,
             flags: CellFlags::BOLD,
         };
         let cmds = generate(&vec![vec![cell]], None, None, None);
@@ -796,6 +822,7 @@ mod tests {
             character: 'D',
             fg: Color::Default,
             bg: Color::Default,
+            underline_color: Color::Default,
             flags: CellFlags::empty(),
         };
         let cmds = super::generate(&vec![vec![cell]], None, None, None, palette);

@@ -34,15 +34,16 @@ impl Default for Color {
 
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-    pub struct CellFlags: u8 {
-        const BOLD          = 0b0000_0001;
-        const DIM           = 0b0000_0010;
-        const ITALIC        = 0b0000_0100;
-        const UNDERLINE     = 0b0000_1000;
-        const INVERSE       = 0b0001_0000;
-        const HIDDEN        = 0b0010_0000;
-        const STRIKETHROUGH = 0b0100_0000;
-        const WIDE_CHAR     = 0b1000_0000;
+    pub struct CellFlags: u16 {
+        const BOLD          = 0b0_0000_0001;
+        const DIM           = 0b0_0000_0010;
+        const ITALIC        = 0b0_0000_0100;
+        const UNDERLINE     = 0b0_0000_1000;
+        const INVERSE       = 0b0_0001_0000;
+        const HIDDEN        = 0b0_0010_0000;
+        const STRIKETHROUGH = 0b0_0100_0000;
+        const WIDE_CHAR     = 0b0_1000_0000;
+        const OVERLINE      = 0b1_0000_0000;
     }
 }
 
@@ -53,6 +54,7 @@ pub struct Cell {
     pub character: char,
     pub fg: Color,
     pub bg: Color,
+    pub underline_color: Color,
     pub flags: CellFlags,
 }
 
@@ -62,6 +64,7 @@ impl Default for Cell {
             character: ' ',
             fg: Color::Default,
             bg: Color::Default,
+            underline_color: Color::Default,
             flags: CellFlags::empty(),
         }
     }
@@ -76,6 +79,7 @@ pub struct RenderCommand {
     pub character: char,
     pub fg: Rgb,
     pub bg: Rgb,
+    pub underline_color: Option<Rgb>,
     pub flags: CellFlags,
 }
 
@@ -104,6 +108,10 @@ pub enum TerminalCommand {
     ResetInverse,
     ResetHidden,
     ResetStrikethrough,
+    SetOverline,
+    ResetOverline,
+    SetUnderlineColor(Color),
+    ResetUnderlineColor,
     ResetAttributes,
     EraseInLine(u16),
     EraseInDisplay(u16),
@@ -270,6 +278,7 @@ mod tests {
             character: 'A',
             fg: Rgb::new(255, 255, 255),
             bg: Rgb::new(0, 0, 0),
+            underline_color: None,
             flags: CellFlags::BOLD,
         };
         assert_eq!(cmd.col, 5);

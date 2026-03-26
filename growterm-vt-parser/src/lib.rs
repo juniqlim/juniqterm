@@ -43,6 +43,8 @@ impl Handler {
                 27 => self.commands.push(TerminalCommand::ResetInverse),
                 28 => self.commands.push(TerminalCommand::ResetHidden),
                 29 => self.commands.push(TerminalCommand::ResetStrikethrough),
+                53 => self.commands.push(TerminalCommand::SetOverline),
+                55 => self.commands.push(TerminalCommand::ResetOverline),
                 // Standard foreground colors 30-37
                 30..=37 => {
                     self.commands
@@ -75,6 +77,16 @@ impl Handler {
                 49 => self
                     .commands
                     .push(TerminalCommand::SetBackground(Color::Default)),
+                58 => {
+                    if let Some((color, consumed)) = self.parse_extended_color(&parts, i) {
+                        self.commands
+                            .push(TerminalCommand::SetUnderlineColor(color));
+                        i += consumed;
+                    }
+                }
+                59 => self
+                    .commands
+                    .push(TerminalCommand::ResetUnderlineColor),
                 // Bright foreground colors 90-97
                 90..=97 => {
                     self.commands
@@ -192,6 +204,11 @@ impl vte::Perform for Handler {
                 ('l', 1049) => self.commands.push(TerminalCommand::LeaveAltScreen),
                 _ => {}
             }
+            return;
+        }
+
+        // Ignore other private/intermediate sequences (CSI > ..., CSI = ..., etc.)
+        if !intermediates.is_empty() {
             return;
         }
 
@@ -524,6 +541,65 @@ mod tests {
         // SGR 4:1 means "single underline"
         let cmds = parser.parse(b"\x1b[4:1m");
         assert_eq!(cmds, vec![TerminalCommand::SetUnderline]);
+    }
+
+    #[test]
+    fn parse_sgr_underline_sub_param_curly() {
+        let mut parser = VtParser::new();
+        // SGR 4:3 (curly underline) — parsed as SetUnderline
+        let cmds = parser.parse(b"\x1b[4:3m");
+        assert_eq!(cmds, vec![TerminalCommand::SetUnderline]);
+    }
+
+    #[test]
+    fn parse_sgr_underline_sub_param_dotted() {
+        let mut parser = VtParser::new();
+        // SGR 4:4 (dotted) and 4:5 (dashed) — parsed as SetUnderline
+        let cmds = parser.parse(b"\x1b[4:4m");
+        assert_eq!(cmds, vec![TerminalCommand::SetUnderline]);
+    }
+
+    #[test]
+    fn parse_sgr_overline() {
+        let mut parser = VtParser::new();
+        let cmds = parser.parse(b"\x1b[53m");
+        assert_eq!(cmds, vec![TerminalCommand::SetOverline]);
+    }
+
+    #[test]
+    fn parse_sgr_reset_overline() {
+        let mut parser = VtParser::new();
+        let cmds = parser.parse(b"\x1b[55m");
+        assert_eq!(cmds, vec![TerminalCommand::ResetOverline]);
+    }
+
+    #[test]
+    fn parse_sgr_underline_color_rgb() {
+        let mut parser = VtParser::new();
+        let cmds = parser.parse(b"\x1b[58:2::255:0:128m");
+        assert_eq!(
+            cmds,
+            vec![TerminalCommand::SetUnderlineColor(Color::Rgb(
+                Rgb::new(255, 0, 128)
+            ))]
+        );
+    }
+
+    #[test]
+    fn parse_sgr_underline_color_256() {
+        let mut parser = VtParser::new();
+        let cmds = parser.parse(b"\x1b[58:5:196m");
+        assert_eq!(
+            cmds,
+            vec![TerminalCommand::SetUnderlineColor(Color::Indexed(196))]
+        );
+    }
+
+    #[test]
+    fn parse_sgr_reset_underline_color() {
+        let mut parser = VtParser::new();
+        let cmds = parser.parse(b"\x1b[59m");
+        assert_eq!(cmds, vec![TerminalCommand::ResetUnderlineColor]);
     }
 
     #[test]

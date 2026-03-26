@@ -22,6 +22,7 @@ struct SavedScreen {
     cursor_col: usize,
     current_fg: Color,
     current_bg: Color,
+    current_underline_color: Color,
     current_flags: CellFlags,
     scrollback: Vec<Vec<Cell>>,
     scroll_offset: usize,
@@ -36,6 +37,7 @@ pub struct Grid {
     cursor_col: usize,
     current_fg: Color,
     current_bg: Color,
+    current_underline_color: Color,
     current_flags: CellFlags,
     scrollback: Vec<Vec<Cell>>,
     scroll_offset: usize,
@@ -59,6 +61,7 @@ impl Grid {
             cursor_col: 0,
             current_fg: Color::Default,
             current_bg: Color::Default,
+            current_underline_color: Color::Default,
             current_flags: CellFlags::empty(),
             scrollback: Vec::new(),
             scroll_offset: 0,
@@ -126,9 +129,14 @@ impl Grid {
             TerminalCommand::ResetInverse => self.current_flags.remove(CellFlags::INVERSE),
             TerminalCommand::ResetHidden => self.current_flags.remove(CellFlags::HIDDEN),
             TerminalCommand::ResetStrikethrough => self.current_flags.remove(CellFlags::STRIKETHROUGH),
+            TerminalCommand::SetOverline => self.current_flags |= CellFlags::OVERLINE,
+            TerminalCommand::ResetOverline => self.current_flags.remove(CellFlags::OVERLINE),
+            TerminalCommand::SetUnderlineColor(c) => self.current_underline_color = *c,
+            TerminalCommand::ResetUnderlineColor => self.current_underline_color = Color::Default,
             TerminalCommand::ResetAttributes => {
                 self.current_fg = Color::Default;
                 self.current_bg = Color::Default;
+                self.current_underline_color = Color::Default;
                 self.current_flags = CellFlags::empty();
             }
             TerminalCommand::Newline => self.newline(),
@@ -268,6 +276,7 @@ impl Grid {
             character: c,
             fg: self.current_fg,
             bg: self.current_bg,
+            underline_color: self.current_underline_color,
             flags,
         };
         self.cursor_col += 1;
@@ -398,6 +407,7 @@ impl Grid {
             cursor_col: self.cursor_col,
             current_fg: self.current_fg,
             current_bg: self.current_bg,
+            current_underline_color: self.current_underline_color,
             current_flags: self.current_flags,
             scrollback: std::mem::take(&mut self.scrollback),
             scroll_offset: self.scroll_offset,
@@ -419,6 +429,7 @@ impl Grid {
             self.cursor_col = saved.cursor_col;
             self.current_fg = saved.current_fg;
             self.current_bg = saved.current_bg;
+            self.current_underline_color = saved.current_underline_color;
             self.current_flags = saved.current_flags;
             self.scrollback = saved.scrollback;
             self.scroll_offset = saved.scroll_offset;
@@ -533,6 +544,7 @@ impl Grid {
             character: ' ',
             fg: Color::Default,
             bg: self.current_bg,
+            underline_color: Color::Default,
             flags: CellFlags::empty(),
         }
     }
