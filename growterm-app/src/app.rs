@@ -757,7 +757,11 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                 if let Some(key_event) =
                     growterm_macos::convert_key(keycode, characters.as_deref(), modifiers)
                 {
-                    let bytes = growterm_input::encode(key_event);
+                    let kitty_flags = tabs.active_tab().map_or(0, |tab| {
+                        tab.kitty_keyboard_flags
+                            .load(std::sync::atomic::Ordering::Relaxed)
+                    });
+                    let bytes = growterm_input::encode_with_kitty_flags(key_event, kitty_flags);
                     pomodoro.on_input(&tab_scrollback_lens(&tabs));
                     if bytes == b"\r" || bytes == b"\n" {
                         ink_state.on_enter();

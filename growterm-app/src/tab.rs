@@ -1,6 +1,6 @@
 use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -25,6 +25,7 @@ pub struct Tab {
     pub response_timer: ResponseTimer,
     pub bracketed_paste: Arc<AtomicBool>,
     pub mouse_mode: Arc<AtomicU8>,
+    pub kitty_keyboard_flags: Arc<AtomicU16>,
     pub copy_mode: CopyMode,
     pub selection: Selection,
 }
@@ -290,6 +291,7 @@ impl Tab {
         let bracketed_paste = Arc::new(AtomicBool::new(false));
         let mouse_mode = Arc::new(AtomicU8::new(0));
         let mouse_sgr = Arc::new(AtomicBool::new(false));
+        let kitty_keyboard_flags = Arc::new(AtomicU16::new(0));
         let pty_writer = match growterm_pty::spawn_with_cwd(rows, cols, cwd) {
             Ok((reader, writer)) => {
                 let responder = writer.responder();
@@ -303,6 +305,7 @@ impl Tab {
                     Arc::clone(&bracketed_paste),
                     Arc::clone(&mouse_mode),
                     Arc::clone(&mouse_sgr),
+                    Arc::clone(&kitty_keyboard_flags),
                     window,
                 );
                 writer
@@ -320,6 +323,7 @@ impl Tab {
             response_timer: ResponseTimer::new(),
             bracketed_paste,
             mouse_mode,
+            kitty_keyboard_flags,
             copy_mode: CopyMode::new(),
             selection: Selection::default(),
         })
@@ -336,6 +340,7 @@ fn start_io_thread(
     bracketed_paste: Arc<AtomicBool>,
     mouse_mode: Arc<AtomicU8>,
     mouse_sgr: Arc<AtomicBool>,
+    negotiated_kitty_keyboard_flags: Arc<AtomicU16>,
     window: Arc<MacWindow>,
 ) {
     std::thread::spawn(move || {
@@ -381,6 +386,8 @@ fn start_io_thread(
                             TerminalControl::KittyKeyboardPush(flags) => {
                                 kitty_keyboard_stack.push(kitty_keyboard_flags);
                                 kitty_keyboard_flags = flags;
+                                negotiated_kitty_keyboard_flags
+                                    .store(kitty_keyboard_flags, Ordering::Relaxed);
                             }
                             TerminalControl::KittyKeyboardPop(count) => {
                                 let mut remaining = count.max(1);
@@ -393,6 +400,8 @@ fn start_io_thread(
                                     }
                                     remaining -= 1;
                                 }
+                                negotiated_kitty_keyboard_flags
+                                    .store(kitty_keyboard_flags, Ordering::Relaxed);
                             }
                             TerminalControl::SetDefaultForegroundColor(color) => {
                                 state.palette.default_fg = color;
@@ -1036,6 +1045,7 @@ mod tests {
             response_timer: ResponseTimer::new(),
             bracketed_paste: Arc::new(AtomicBool::new(false)),
             mouse_mode: Arc::new(AtomicU8::new(0)),
+            kitty_keyboard_flags: Arc::new(AtomicU16::new(0)),
             copy_mode: CopyMode::new(),
             selection: Selection::default(),
         }
