@@ -149,6 +149,18 @@ pub enum Key {
     Escape,
     Backspace,
     Delete,
+    F1,
+    F2,
+    F3,
+    F4,
+    F5,
+    F6,
+    F7,
+    F8,
+    F9,
+    F10,
+    F11,
+    F12,
     ArrowUp,
     ArrowDown,
     ArrowLeft,
@@ -174,6 +186,13 @@ bitflags! {
 pub struct KeyEvent {
     pub key: Key,
     pub modifiers: Modifiers,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyEventType {
+    Press,
+    Repeat,
+    Release,
 }
 
 #[cfg(test)]
@@ -334,6 +353,12 @@ mod tests {
         };
         assert_eq!(event.key, Key::Char('a'));
         assert!(event.modifiers.contains(Modifiers::CTRL));
+    }
+
+    #[test]
+    fn key_event_type_variants_distinct() {
+        assert_ne!(KeyEventType::Press, KeyEventType::Repeat);
+        assert_ne!(KeyEventType::Repeat, KeyEventType::Release);
     }
 
     #[test]

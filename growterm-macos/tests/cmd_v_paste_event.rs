@@ -20,6 +20,8 @@ fn main() {
     test_cmd_v_korean_ime(mtm);
     test_cmd_q_not_intercepted_english(mtm);
     test_cmd_q_not_intercepted_korean_ime(mtm);
+    test_key_down_repeat_is_reported(mtm);
+    test_key_up_is_reported(mtm);
 
     println!("PASS: all Cmd key equivalent tests passed");
 }
@@ -98,12 +100,68 @@ fn assert_key_input(event: &growterm_macos::AppEvent, expected_keycode: u16, exp
     }
 }
 
+fn test_key_down_repeat_is_reported(mtm: MainThreadMarker) {
+    let (view, rx) = setup_view(mtm);
+    growterm_macos::test_support::set_copy_mode_bypass_ime(&view, true);
+    let event = create_key_event_with_type(
+        NSEventType::KeyDown,
+        0x7E,
+        "",
+        NSEventModifierFlags::empty(),
+        true,
+    );
+
+    unsafe { let _: () = objc2::msg_send![&*view, keyDown: &*event]; }
+
+    match rx.try_recv().expect("should receive repeated key input") {
+        growterm_macos::AppEvent::KeyInput { keycode, event_type, .. } => {
+            assert_eq!(keycode, 0x7E);
+            assert_eq!(event_type, growterm_macos::KeyEventType::Repeat);
+        }
+        other => panic!("expected KeyInput, got {:?}", other),
+    }
+    println!("  PASS: keyDown repeat reported");
+}
+
+fn test_key_up_is_reported(mtm: MainThreadMarker) {
+    let (view, rx) = setup_view(mtm);
+    growterm_macos::test_support::set_copy_mode_bypass_ime(&view, true);
+    let event = create_key_event_with_type(
+        NSEventType::KeyUp,
+        0x7E,
+        "",
+        NSEventModifierFlags::empty(),
+        false,
+    );
+
+    unsafe { let _: () = objc2::msg_send![&*view, keyUp: &*event]; }
+
+    match rx.try_recv().expect("should receive key release input") {
+        growterm_macos::AppEvent::KeyInput { keycode, event_type, .. } => {
+            assert_eq!(keycode, 0x7E);
+            assert_eq!(event_type, growterm_macos::KeyEventType::Release);
+        }
+        other => panic!("expected KeyInput, got {:?}", other),
+    }
+    println!("  PASS: keyUp release reported");
+}
+
 fn create_key_event(keycode: u16, chars: &str, flags: NSEventModifierFlags) -> Retained<NSEvent> {
+    create_key_event_with_type(NSEventType::KeyDown, keycode, chars, flags, false)
+}
+
+fn create_key_event_with_type(
+    event_type: NSEventType,
+    keycode: u16,
+    chars: &str,
+    flags: NSEventModifierFlags,
+    is_repeat: bool,
+) -> Retained<NSEvent> {
     use objc2_foundation::NSString;
     let characters = NSString::from_str(chars);
     let characters_ignoring = NSString::from_str(chars);
     NSEvent::keyEventWithType_location_modifierFlags_timestamp_windowNumber_context_characters_charactersIgnoringModifiers_isARepeat_keyCode(
-        NSEventType::KeyDown,
+        event_type,
         NSPoint::new(0.0, 0.0),
         flags,
         0.0,
@@ -111,7 +169,7 @@ fn create_key_event(keycode: u16, chars: &str, flags: NSEventModifierFlags) -> R
         None,
         &characters,
         &characters_ignoring,
-        false,
+        is_repeat,
         keycode,
     ).expect("failed to create key event")
 }

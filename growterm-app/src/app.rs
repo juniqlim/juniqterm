@@ -345,6 +345,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                 keycode,
                 characters,
                 modifiers,
+                event_type,
             } => {
                 use growterm_macos::key_convert::keycode as kc;
 
@@ -761,7 +762,14 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                         tab.kitty_keyboard_flags
                             .load(std::sync::atomic::Ordering::Relaxed)
                     });
-                    let bytes = growterm_input::encode_with_kitty_flags(key_event, kitty_flags);
+                    let bytes = growterm_input::encode_with_kitty_flags_and_event_type(
+                        key_event,
+                        kitty_flags,
+                        event_type,
+                    );
+                    if bytes.is_empty() {
+                        continue;
+                    }
                     pomodoro.on_input(&tab_scrollback_lens(&tabs));
                     if bytes == b"\r" || bytes == b"\n" {
                         ink_state.on_enter();

@@ -6,7 +6,7 @@ pub mod key_convert;
 pub mod view;
 mod window;
 
-pub use event::{AppEvent, Modifiers};
+pub use event::{AppEvent, KeyEventType, Modifiers};
 pub use key_convert::convert_key;
 pub use window::MacWindow;
 
@@ -23,6 +23,10 @@ pub mod test_support {
 
     pub fn set_view_sender(view: &TerminalView, sender: std::sync::mpsc::Sender<crate::AppEvent>) {
         view.set_sender(sender);
+    }
+
+    pub fn set_copy_mode_bypass_ime(view: &TerminalView, enabled: bool) {
+        view.set_copy_mode_bypass_ime(enabled);
     }
 
     pub fn setup_menu(app: &objc2_app_kit::NSApplication) {

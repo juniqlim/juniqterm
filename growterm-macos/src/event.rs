@@ -1,3 +1,5 @@
+pub use growterm_types::KeyEventType;
+
 /// macOS 윈도우에서 발생하는 이벤트
 #[derive(Debug, Clone)]
 pub enum AppEvent {
@@ -6,7 +8,12 @@ pub enum AppEvent {
     /// setMarkedText: — 조합 중 표시
     Preedit(String),
     /// doCommandBySelector: — IME가 패스한 키, 앱이 직접 처리
-    KeyInput { keycode: u16, characters: Option<String>, modifiers: Modifiers },
+    KeyInput {
+        keycode: u16,
+        characters: Option<String>,
+        modifiers: Modifiers,
+        event_type: KeyEventType,
+    },
     /// 윈도우 리사이즈
     Resize(u32, u32),
     /// 윈도우 닫기 요청

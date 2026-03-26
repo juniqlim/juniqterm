@@ -2,6 +2,18 @@ use crate::event::Modifiers;
 
 /// macOS 가상 키코드 (Carbon kVK_ 상수)
 pub mod keycode {
+    pub const F1: u16 = 0x7A;
+    pub const F2: u16 = 0x78;
+    pub const F3: u16 = 0x63;
+    pub const F4: u16 = 0x76;
+    pub const F5: u16 = 0x60;
+    pub const F6: u16 = 0x61;
+    pub const F7: u16 = 0x62;
+    pub const F8: u16 = 0x64;
+    pub const F9: u16 = 0x65;
+    pub const F10: u16 = 0x6D;
+    pub const F11: u16 = 0x67;
+    pub const F12: u16 = 0x6F;
     pub const RETURN: u16 = 0x24;
     pub const TAB: u16 = 0x30;
     pub const SPACE: u16 = 0x31;
@@ -90,6 +102,18 @@ pub fn convert_key(
         keycode::ESCAPE => growterm_types::Key::Escape,
         keycode::DELETE => growterm_types::Key::Backspace,
         keycode::FORWARD_DELETE => growterm_types::Key::Delete,
+        keycode::F1 => growterm_types::Key::F1,
+        keycode::F2 => growterm_types::Key::F2,
+        keycode::F3 => growterm_types::Key::F3,
+        keycode::F4 => growterm_types::Key::F4,
+        keycode::F5 => growterm_types::Key::F5,
+        keycode::F6 => growterm_types::Key::F6,
+        keycode::F7 => growterm_types::Key::F7,
+        keycode::F8 => growterm_types::Key::F8,
+        keycode::F9 => growterm_types::Key::F9,
+        keycode::F10 => growterm_types::Key::F10,
+        keycode::F11 => growterm_types::Key::F11,
+        keycode::F12 => growterm_types::Key::F12,
         keycode::UP_ARROW => growterm_types::Key::ArrowUp,
         keycode::DOWN_ARROW => growterm_types::Key::ArrowDown,
         keycode::LEFT_ARROW => growterm_types::Key::ArrowLeft,
@@ -181,6 +205,12 @@ mod tests {
             result,
             Some(KeyEvent { key: Key::Delete, modifiers: TypeMods::empty() })
         );
+    }
+
+    #[test]
+    fn function_keys() {
+        assert_eq!(convert_key(keycode::F1, None, Modifiers::empty()).unwrap().key, Key::F1);
+        assert_eq!(convert_key(keycode::F12, None, Modifiers::empty()).unwrap().key, Key::F12);
     }
 
     #[test]

@@ -15,6 +15,7 @@ use objc2_foundation::{
 };
 
 use crate::event::{AppEvent, Modifiers};
+use growterm_types::KeyEventType;
 
 /// App thread sets this; view reads it on mouseMoved to apply cursor synchronously.
 pub static POINTING_HAND_CURSOR: AtomicBool = AtomicBool::new(false);
@@ -90,7 +91,7 @@ define_class! {
                 {
                     return objc2::runtime::Bool::NO;
                 }
-                self.dispatch_key_event(event);
+                self.dispatch_key_event(event, KeyEventType::Press);
                 return objc2::runtime::Bool::YES;
             }
             objc2::runtime::Bool::NO
@@ -100,7 +101,7 @@ define_class! {
         fn key_down(&self, event: &NSEvent) {
             // 복사모드: IME를 우회하고 raw keycode를 직접 전달
             if self.ivars().copy_mode_bypass_ime.get() {
-                self.dispatch_key_event(event);
+                self.dispatch_key_event(event, key_event_type(event));
                 return;
             }
 
@@ -136,12 +137,17 @@ define_class! {
                     if self.ivars().ime_committed_from_composition.get() {
                         self.defer_dispatch_key_event(event);
                     } else {
-                        self.dispatch_key_event(event);
+                        self.dispatch_key_event(event, key_event_type(event));
                     }
                 }
             }
 
             self.ivars().current_event.replace(None);
+        }
+
+        #[unsafe(method(keyUp:))]
+        fn key_up(&self, event: &NSEvent) {
+            self.dispatch_key_event(event, KeyEventType::Release);
         }
 
         #[unsafe(method(mouseMoved:))]
@@ -494,7 +500,7 @@ impl TerminalView {
         }
     }
 
-    fn dispatch_key_event(&self, event: &NSEvent) {
+    fn dispatch_key_event(&self, event: &NSEvent, event_type: KeyEventType) {
         let keycode = event.keyCode();
         let flags = event.modifierFlags();
         let characters = event
@@ -505,6 +511,7 @@ impl TerminalView {
             keycode,
             characters,
             modifiers,
+            event_type,
         });
     }
 
@@ -516,6 +523,7 @@ impl TerminalView {
             .charactersIgnoringModifiers()
             .map(|s| s.to_string());
         let modifiers = convert_modifier_flags(flags);
+        let event_type = key_event_type(event);
         let sender = self.ivars().sender.borrow().clone();
         std::thread::spawn(move || {
             // TextCommit이 PTY에 쓰이고 상대편이 읽을 시간 확보
@@ -525,6 +533,7 @@ impl TerminalView {
                     keycode,
                     characters,
                     modifiers,
+                    event_type,
                 });
             }
         });
@@ -565,6 +574,14 @@ impl TerminalView {
                 has_marked_text
             }
         }
+    }
+}
+
+fn key_event_type(event: &NSEvent) -> KeyEventType {
+    if event.isARepeat() {
+        KeyEventType::Repeat
+    } else {
+        KeyEventType::Press
     }
 }
 
