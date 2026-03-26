@@ -482,6 +482,24 @@ mod tests {
         );
     }
 
+    // --- CSI intermediate filtering ---
+
+    #[test]
+    fn csi_greater_than_ignored() {
+        let mut parser = VtParser::new();
+        // CSI > 4 m (kitty keyboard protocol) must NOT be parsed as SGR 4
+        let cmds = parser.parse(b"\x1b[>4m");
+        assert!(cmds.is_empty());
+    }
+
+    #[test]
+    fn csi_greater_than_with_params_ignored() {
+        let mut parser = VtParser::new();
+        // CSI > 4;2 m must NOT be parsed as SGR 4 + SGR 2
+        let cmds = parser.parse(b"\x1b[>4;2m");
+        assert!(cmds.is_empty());
+    }
+
     // --- SGR (Set Graphics Rendition) ---
 
     #[test]
