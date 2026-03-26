@@ -26,7 +26,14 @@ impl Handler {
                 1 => self.commands.push(TerminalCommand::SetBold),
                 2 => self.commands.push(TerminalCommand::SetDim),
                 3 => self.commands.push(TerminalCommand::SetItalic),
-                4 => self.commands.push(TerminalCommand::SetUnderline),
+                4 => {
+                    // SGR 4:0 means reset underline (sub-parameter form)
+                    if part.len() > 1 && part[1] == 0 {
+                        self.commands.push(TerminalCommand::ResetUnderline);
+                    } else {
+                        self.commands.push(TerminalCommand::SetUnderline);
+                    }
+                }
                 7 => self.commands.push(TerminalCommand::SetInverse),
                 8 => self.commands.push(TerminalCommand::SetHidden),
                 9 => self.commands.push(TerminalCommand::SetStrikethrough),
@@ -500,6 +507,22 @@ mod tests {
     fn parse_sgr_underline() {
         let mut parser = VtParser::new();
         let cmds = parser.parse(b"\x1b[4m");
+        assert_eq!(cmds, vec![TerminalCommand::SetUnderline]);
+    }
+
+    #[test]
+    fn parse_sgr_underline_sub_param_zero_resets() {
+        let mut parser = VtParser::new();
+        // SGR 4:0 means "no underline" (sub-parameter form)
+        let cmds = parser.parse(b"\x1b[4:0m");
+        assert_eq!(cmds, vec![TerminalCommand::ResetUnderline]);
+    }
+
+    #[test]
+    fn parse_sgr_underline_sub_param_one_sets() {
+        let mut parser = VtParser::new();
+        // SGR 4:1 means "single underline"
+        let cmds = parser.parse(b"\x1b[4:1m");
         assert_eq!(cmds, vec![TerminalCommand::SetUnderline]);
     }
 
