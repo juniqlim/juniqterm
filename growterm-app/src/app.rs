@@ -131,6 +131,33 @@ fn exit_copy_mode(copy_mode: &mut CopyMode, sel: &mut Selection, window: &MacWin
     }
 }
 
+fn should_enter_copy_mode_from_text(text: &str) -> bool {
+    text == "`" || text == "₩"
+}
+
+fn should_enter_copy_mode_from_key_input(
+    keycode: u16,
+    modifiers: Modifiers,
+) -> bool {
+    use growterm_macos::key_convert::keycode as kc;
+
+    keycode == kc::ANSI_GRAVE && modifiers.is_empty()
+}
+
+fn enter_copy_mode(copy_mode: &mut CopyMode, sel: &mut Selection, window: &MacWindow, tabs: &TabManager) {
+    if let Some(tab) = tabs.active_tab() {
+        let state = tab.terminal.lock().unwrap();
+        let sb_len = state.grid.scrollback_len() as u32;
+        let (cursor_row, _cursor_col) = state.grid.cursor_pos();
+        let abs_cursor_row = sb_len + cursor_row as u32;
+        let cols = state.grid.cells().first().map_or(80, |r| r.len()) as u16;
+        drop(state);
+        copy_mode.enter(abs_cursor_row, cols, sel);
+        window.set_copy_mode(true);
+        window.discard_marked_text();
+    }
+}
+
 /// Convert screen row to absolute row (including scrollback).
 fn screen_to_abs_row(tabs: &TabManager, screen_row: u16) -> u32 {
     if let Some(tab) = tabs.active_tab() {
@@ -307,18 +334,8 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                 }
 
                 // 백틱(`) 또는 ₩: 복사모드 진입/종료
-                if (text == "`" || text == "₩") && !copy_mode.active {
-                    if let Some(tab) = tabs.active_tab() {
-                        let state = tab.terminal.lock().unwrap();
-                        let sb_len = state.grid.scrollback_len() as u32;
-                        let (cursor_row, _cursor_col) = state.grid.cursor_pos();
-                        let abs_cursor_row = sb_len + cursor_row as u32;
-                        let cols = state.grid.cells().first().map_or(80, |r| r.len()) as u16;
-                        drop(state);
-                        copy_mode.enter(abs_cursor_row, cols, &mut sel);
-                        window.set_copy_mode(true);
-                        window.discard_marked_text();
-                    }
+                if should_enter_copy_mode_from_text(&text) && !copy_mode.active {
+                    enter_copy_mode(&mut copy_mode, &mut sel, &window, &tabs);
                     do_render!();
                     continue;
                 }
@@ -657,6 +674,12 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                             }
                         }
                     }
+                    do_render!();
+                    continue;
+                }
+
+                if should_enter_copy_mode_from_key_input(keycode, modifiers) && !copy_mode.active {
+                    enter_copy_mode(&mut copy_mode, &mut sel, &window, &tabs);
                     do_render!();
                     continue;
                 }
@@ -1612,6 +1635,33 @@ mod tests {
     #[test]
     fn shell_escape_path_with_single_quote() {
         assert_eq!(shell_escape("/tmp/it's.txt"), "'/tmp/it'\\''s.txt'");
+    }
+
+    #[test]
+    fn backtick_text_commit_enters_copy_mode() {
+        assert!(should_enter_copy_mode_from_text("`"));
+        assert!(should_enter_copy_mode_from_text("₩"));
+        assert!(!should_enter_copy_mode_from_text("~"));
+    }
+
+    #[test]
+    fn bare_grave_key_input_enters_copy_mode() {
+        assert!(should_enter_copy_mode_from_key_input(
+            growterm_macos::key_convert::keycode::ANSI_GRAVE,
+            Modifiers::empty(),
+        ));
+    }
+
+    #[test]
+    fn modified_grave_key_input_does_not_enter_copy_mode() {
+        assert!(!should_enter_copy_mode_from_key_input(
+            growterm_macos::key_convert::keycode::ANSI_GRAVE,
+            Modifiers::SHIFT,
+        ));
+        assert!(!should_enter_copy_mode_from_key_input(
+            growterm_macos::key_convert::keycode::ANSI_GRAVE,
+            Modifiers::ALT,
+        ));
     }
 
     fn make_grid_with_lines(cols: u16, rows: u16, lines: &[&str]) -> growterm_grid::Grid {

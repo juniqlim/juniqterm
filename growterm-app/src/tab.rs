@@ -8,7 +8,7 @@ use growterm_grid::Grid;
 use growterm_macos::MacWindow;
 use growterm_pty::PtyWriter;
 use growterm_render_cmd::TerminalPalette;
-use growterm_types::Rgb;
+use growterm_types::{Rgb, TerminalCommand};
 use growterm_vt_parser::VtParser;
 
 use crate::copy_mode::CopyMode;
@@ -48,9 +48,7 @@ pub struct TabBarInfo {
     pub active_index: usize,
 }
 
-fn vt_capture_path_from_env_with(
-    value: Option<std::ffi::OsString>,
-) -> Option<PathBuf> {
+fn vt_capture_path_from_env_with(value: Option<std::ffi::OsString>) -> Option<PathBuf> {
     let path = value?;
     if path.is_empty() {
         None
@@ -79,13 +77,22 @@ pub fn hit_test_tab_bar(y: f32, tab_bar_h: f32, tab_bar_y: f32) -> bool {
 }
 
 /// Content Y offset for rendering — where terminal content starts.
-pub fn content_y_offset(show_tab_bar: bool, tab_bar_h: f32, title_bar_h: f32, has_scrollback: bool) -> f32 {
+pub fn content_y_offset(
+    show_tab_bar: bool,
+    tab_bar_h: f32,
+    title_bar_h: f32,
+    has_scrollback: bool,
+) -> f32 {
     let transparent = title_bar_h > 0.0;
     if transparent && has_scrollback {
         return if show_tab_bar { tab_bar_h } else { 0.0 };
     }
     if !show_tab_bar {
-        if transparent { title_bar_h } else { 0.0 }
+        if transparent {
+            title_bar_h
+        } else {
+            0.0
+        }
     } else if transparent {
         title_bar_h + tab_bar_h
     } else {
@@ -347,8 +354,7 @@ fn start_io_thread(
         let mut buf = [0u8; 65536];
         let mut vt_capture = open_vt_capture_file();
         let mut pending_queries: Vec<u8> = Vec::new();
-        let mut kitty_keyboard_flags: u16 = 0;
-        let mut kitty_keyboard_stack: Vec<u16> = Vec::new();
+        let mut kitty_keyboard_state = KittyKeyboardState::default();
         // sync_output is now a shared Arc<AtomicBool> passed as parameter
         loop {
             match reader.read(&mut buf) {
@@ -367,6 +373,7 @@ fn start_io_thread(
                     let commands = state.vt_parser.parse(&buf[..n]);
                     for cmd in &commands {
                         state.grid.apply(cmd);
+                        kitty_keyboard_state.apply_terminal_command(cmd);
                     }
                     if state.grid.scroll_offset() == 0 {
                         state.grid.reset_scroll();
@@ -378,30 +385,17 @@ fn start_io_thread(
                                 let response = encode_terminal_query_response(
                                     query,
                                     cursor,
-                                    kitty_keyboard_flags,
+                                    kitty_keyboard_state.current_flags(),
                                     state.palette,
                                 );
                                 responses.push(response);
                             }
-                            TerminalControl::KittyKeyboardPush(flags) => {
-                                kitty_keyboard_stack.push(kitty_keyboard_flags);
-                                kitty_keyboard_flags = flags;
+                            TerminalControl::KittyKeyboardPush(_)
+                            | TerminalControl::KittyKeyboardPop(_)
+                            | TerminalControl::KittyKeyboardSet(_, _) => {
+                                kitty_keyboard_state.apply_control(control);
                                 negotiated_kitty_keyboard_flags
-                                    .store(kitty_keyboard_flags, Ordering::Relaxed);
-                            }
-                            TerminalControl::KittyKeyboardPop(count) => {
-                                let mut remaining = count.max(1);
-                                while remaining > 0 {
-                                    if let Some(prev) = kitty_keyboard_stack.pop() {
-                                        kitty_keyboard_flags = prev;
-                                    } else {
-                                        kitty_keyboard_flags = 0;
-                                        break;
-                                    }
-                                    remaining -= 1;
-                                }
-                                negotiated_kitty_keyboard_flags
-                                    .store(kitty_keyboard_flags, Ordering::Relaxed);
+                                    .store(kitty_keyboard_state.current_flags(), Ordering::Relaxed);
                             }
                             TerminalControl::SetDefaultForegroundColor(color) => {
                                 state.palette.default_fg = color;
@@ -476,6 +470,7 @@ enum TerminalControl {
     Query(TerminalQuery),
     KittyKeyboardPush(u16),
     KittyKeyboardPop(u16),
+    KittyKeyboardSet(u16, u8),
     SetDefaultForegroundColor(Rgb),
     SetDefaultBackgroundColor(Rgb),
     SyncOutputBegin,
@@ -485,6 +480,79 @@ enum TerminalControl {
     MouseModeSet(u8),
     MouseSgrEnable,
     MouseSgrDisable,
+}
+
+#[derive(Debug, Default)]
+struct KittyKeyboardScreenState {
+    flags: u16,
+    stack: Vec<u16>,
+}
+
+#[derive(Debug, Default)]
+struct KittyKeyboardState {
+    main: KittyKeyboardScreenState,
+    alternate: KittyKeyboardScreenState,
+    in_alt_screen: bool,
+}
+
+impl KittyKeyboardState {
+    fn current_flags(&self) -> u16 {
+        self.current_screen().flags
+    }
+
+    fn apply_terminal_command(&mut self, command: &TerminalCommand) {
+        match command {
+            TerminalCommand::EnterAltScreen => self.in_alt_screen = true,
+            TerminalCommand::LeaveAltScreen => self.in_alt_screen = false,
+            _ => {}
+        }
+    }
+
+    fn apply_control(&mut self, control: TerminalControl) {
+        let screen = self.current_screen_mut();
+        match control {
+            TerminalControl::KittyKeyboardPush(flags) => {
+                screen.stack.push(screen.flags);
+                screen.flags = flags;
+            }
+            TerminalControl::KittyKeyboardPop(count) => {
+                let mut remaining = count.max(1);
+                while remaining > 0 {
+                    if let Some(prev) = screen.stack.pop() {
+                        screen.flags = prev;
+                    } else {
+                        screen.flags = 0;
+                        break;
+                    }
+                    remaining -= 1;
+                }
+            }
+            TerminalControl::KittyKeyboardSet(flags, mode) => {
+                screen.flags = match mode {
+                    2 => screen.flags | flags,
+                    3 => screen.flags & !flags,
+                    _ => flags,
+                };
+            }
+            _ => {}
+        }
+    }
+
+    fn current_screen(&self) -> &KittyKeyboardScreenState {
+        if self.in_alt_screen {
+            &self.alternate
+        } else {
+            &self.main
+        }
+    }
+
+    fn current_screen_mut(&mut self) -> &mut KittyKeyboardScreenState {
+        if self.in_alt_screen {
+            &mut self.alternate
+        } else {
+            &mut self.main
+        }
+    }
 }
 
 fn extract_terminal_controls(pending: &mut Vec<u8>) -> Vec<TerminalControl> {
@@ -718,7 +786,7 @@ fn parse_kitty_keyboard_control(rest: &[u8]) -> SequenceParse<TerminalControl> {
         return SequenceParse::NeedMore;
     }
     let mode = rest[2];
-    if mode != b'>' && mode != b'<' {
+    if mode != b'>' && mode != b'<' && mode != b'=' {
         return SequenceParse::NoMatch;
     }
     if rest.len() == 3 {
@@ -732,17 +800,47 @@ fn parse_kitty_keyboard_control(rest: &[u8]) -> SequenceParse<TerminalControl> {
     if idx == rest.len() {
         return SequenceParse::NeedMore;
     }
+    if mode == b'=' {
+        let flags = if idx == 3 {
+            return SequenceParse::NoMatch;
+        } else {
+            parse_u16_saturating(&rest[3..idx])
+        };
+        let mode_value = if rest[idx] == b'u' {
+            1
+        } else {
+            if rest[idx] != b';' {
+                return SequenceParse::NoMatch;
+            }
+            idx += 1;
+            let mode_start = idx;
+            while idx < rest.len() && rest[idx].is_ascii_digit() {
+                idx += 1;
+            }
+            if idx == rest.len() {
+                return SequenceParse::NeedMore;
+            }
+            if idx == mode_start || rest[idx] != b'u' {
+                return SequenceParse::NoMatch;
+            }
+            parse_u8_saturating(&rest[mode_start..idx])
+        };
+        return SequenceParse::Matched(
+            TerminalControl::KittyKeyboardSet(flags, mode_value),
+            idx + 1,
+        );
+    }
+
     if rest[idx] != b'u' {
         return SequenceParse::NoMatch;
     }
-
     let digits = &rest[3..idx];
-    if mode == b'>' && digits.is_empty() {
-        return SequenceParse::NoMatch;
-    }
-
     let value = if digits.is_empty() {
-        1
+        if mode == b'>' {
+            0
+        } else {
+            1
+        }
     } else {
         parse_u16_saturating(digits)
     };
@@ -763,12 +861,12 @@ fn is_kitty_keyboard_control_prefix(rest: &[u8]) -> bool {
         return true;
     }
     let mode = rest[2];
-    if mode != b'>' && mode != b'<' {
+    if mode != b'>' && mode != b'<' && mode != b'=' {
         return false;
     }
     rest[3..]
         .iter()
-        .all(|byte| byte.is_ascii_digit() || *byte == b'u')
+        .all(|byte| byte.is_ascii_digit() || *byte == b'u' || *byte == b';')
 }
 
 fn parse_osc_default_color_control(rest: &[u8]) -> SequenceParse<TerminalControl> {
@@ -875,6 +973,14 @@ fn parse_u16_saturating(bytes: &[u8]) -> u16 {
         .unwrap_or(0)
 }
 
+fn parse_u8_saturating(bytes: &[u8]) -> u8 {
+    std::str::from_utf8(bytes)
+        .ok()
+        .and_then(|s| s.parse::<u16>().ok())
+        .map(|n| n.min(u8::MAX as u16) as u8)
+        .unwrap_or(0)
+}
+
 fn encode_terminal_query_response(
     query: TerminalQuery,
     cursor: (u16, u16),
@@ -934,9 +1040,8 @@ mod tests {
 
     #[test]
     fn vt_capture_path_from_env_returns_path() {
-        let path = vt_capture_path_from_env_with(Some(std::ffi::OsString::from(
-            "/tmp/codex-resume.vt",
-        )));
+        let path =
+            vt_capture_path_from_env_with(Some(std::ffi::OsString::from("/tmp/codex-resume.vt")));
         assert_eq!(path, Some(PathBuf::from("/tmp/codex-resume.vt")));
     }
 
@@ -948,7 +1053,10 @@ mod tests {
 
     #[test]
     fn content_y_offset_transparent_no_tab_bar_no_scrollback() {
-        assert_eq!(content_y_offset(false, TAB_BAR_H, TITLE_BAR_H, false), TITLE_BAR_H);
+        assert_eq!(
+            content_y_offset(false, TAB_BAR_H, TITLE_BAR_H, false),
+            TITLE_BAR_H
+        );
     }
 
     #[test]
@@ -958,13 +1066,19 @@ mod tests {
 
     #[test]
     fn content_y_offset_transparent_with_tab_bar_no_scrollback() {
-        assert_eq!(content_y_offset(true, TAB_BAR_H, TITLE_BAR_H, false), TITLE_BAR_H + TAB_BAR_H);
+        assert_eq!(
+            content_y_offset(true, TAB_BAR_H, TITLE_BAR_H, false),
+            TITLE_BAR_H + TAB_BAR_H
+        );
     }
 
     #[test]
     fn content_y_offset_transparent_with_tab_bar_has_scrollback() {
         // Tab bar still occupies space even with scrollback
-        assert_eq!(content_y_offset(true, TAB_BAR_H, TITLE_BAR_H, true), TAB_BAR_H);
+        assert_eq!(
+            content_y_offset(true, TAB_BAR_H, TITLE_BAR_H, true),
+            TAB_BAR_H
+        );
     }
 
     // --- tab_bar_y_position tests ---
@@ -1223,6 +1337,29 @@ mod tests {
     }
 
     #[test]
+    fn extract_terminal_controls_detects_kitty_set_modes() {
+        let mut pending = b"\x1b[=7u\x1b[=2;2u\x1b[=8;3u".to_vec();
+        let controls = extract_terminal_controls(&mut pending);
+        assert_eq!(
+            controls,
+            vec![
+                TerminalControl::KittyKeyboardSet(7, 1),
+                TerminalControl::KittyKeyboardSet(2, 2),
+                TerminalControl::KittyKeyboardSet(8, 3),
+            ]
+        );
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn extract_terminal_controls_accepts_kitty_push_without_flags() {
+        let mut pending = b"\x1b[>u".to_vec();
+        let controls = extract_terminal_controls(&mut pending);
+        assert_eq!(controls, vec![TerminalControl::KittyKeyboardPush(0)]);
+        assert!(pending.is_empty());
+    }
+
+    #[test]
     fn extract_terminal_controls_detects_decrqss_sgr_query() {
         let mut pending = b"\x1bP$qm\x1b\\".to_vec();
         let controls = extract_terminal_controls(&mut pending);
@@ -1244,6 +1381,14 @@ mod tests {
     }
 
     #[test]
+    fn extract_terminal_controls_keeps_partial_kitty_set() {
+        let mut pending = b"\x1b[=7;".to_vec();
+        let controls = extract_terminal_controls(&mut pending);
+        assert!(controls.is_empty());
+        assert_eq!(pending, b"\x1b[=7;");
+    }
+
+    #[test]
     fn kitty_keyboard_query_response_uses_runtime_flags() {
         let response = encode_terminal_query_response(
             TerminalQuery::KittyKeyboardQuery,
@@ -1252,6 +1397,41 @@ mod tests {
             test_palette(),
         );
         assert_eq!(response, "\x1b[?7u");
+    }
+
+    #[test]
+    fn kitty_keyboard_state_applies_set_modes() {
+        let mut state = KittyKeyboardState::default();
+
+        state.apply_control(TerminalControl::KittyKeyboardSet(3, 1));
+        assert_eq!(state.current_flags(), 3);
+
+        state.apply_control(TerminalControl::KittyKeyboardSet(8, 2));
+        assert_eq!(state.current_flags(), 11);
+
+        state.apply_control(TerminalControl::KittyKeyboardSet(2, 3));
+        assert_eq!(state.current_flags(), 9);
+    }
+
+    #[test]
+    fn kitty_keyboard_state_separates_main_and_alt_screen_modes() {
+        let mut state = KittyKeyboardState::default();
+
+        state.apply_control(TerminalControl::KittyKeyboardSet(1, 1));
+        state.apply_terminal_command(&growterm_types::TerminalCommand::EnterAltScreen);
+        assert_eq!(state.current_flags(), 0);
+
+        state.apply_control(TerminalControl::KittyKeyboardPush(2));
+        assert_eq!(state.current_flags(), 2);
+
+        state.apply_terminal_command(&growterm_types::TerminalCommand::LeaveAltScreen);
+        assert_eq!(state.current_flags(), 1);
+
+        state.apply_terminal_command(&growterm_types::TerminalCommand::EnterAltScreen);
+        assert_eq!(state.current_flags(), 2);
+
+        state.apply_control(TerminalControl::KittyKeyboardPop(1));
+        assert_eq!(state.current_flags(), 0);
     }
 
     #[test]
@@ -1438,7 +1618,6 @@ mod tests {
         assert_eq!(mgr.term_rows(600, 20.0, 30.0, 60.0), 25);
     }
 
-
     #[test]
     fn move_tab_forward() {
         // add_tab inserts after active: tabs=[0,1,2], active=2
@@ -1460,7 +1639,7 @@ mod tests {
         mgr.add_tab(dummy_tab()); // id=0
         mgr.add_tab(dummy_tab()); // id=1
         mgr.add_tab(dummy_tab()); // id=2
-        // tabs=[0,1,2], active=2
+                                  // tabs=[0,1,2], active=2
         mgr.move_tab(2, 0);
         assert_eq!(mgr.active, 0); // active moved with tab
         assert_eq!(mgr.tabs[0].id, 2);
@@ -1474,9 +1653,9 @@ mod tests {
         mgr.add_tab(dummy_tab()); // id=0
         mgr.add_tab(dummy_tab()); // id=1
         mgr.add_tab(dummy_tab()); // id=2
-        // tabs=[0,1,2], active=2
+                                  // tabs=[0,1,2], active=2
         mgr.switch_to(1); // active=1
-        // move tab 0 to 2: active(1) is in (from..=to] => shifted left
+                          // move tab 0 to 2: active(1) is in (from..=to] => shifted left
         mgr.move_tab(0, 2);
         assert_eq!(mgr.active, 0);
     }
@@ -1487,9 +1666,9 @@ mod tests {
         mgr.add_tab(dummy_tab()); // id=0
         mgr.add_tab(dummy_tab()); // id=1
         mgr.add_tab(dummy_tab()); // id=2
-        // tabs=[0,1,2], active=2
+                                  // tabs=[0,1,2], active=2
         mgr.switch_to(1); // active=1
-        // move tab 2 to 0: active(1) is in [to..from) => shifted right
+                          // move tab 2 to 0: active(1) is in [to..from) => shifted right
         mgr.move_tab(2, 0);
         assert_eq!(mgr.active, 2);
     }
