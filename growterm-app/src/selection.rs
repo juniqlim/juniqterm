@@ -1,7 +1,5 @@
 use growterm_types::{Cell, CellFlags};
 
-use crate::ink_workaround::TuiApp;
-
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Selection {
     /// Absolute row (scrollback + screen), column
@@ -171,105 +169,11 @@ pub fn extract_text(cells: &[Vec<Cell>], selection: &Selection) -> String {
     result
 }
 
-fn strip_prompt_prefix(text: &str) -> &str {
-    text.strip_prefix("❯ ")
-        .or_else(|| text.strip_prefix("\u{276F} "))
-        .or_else(|| text.strip_prefix("› "))
-        .or_else(|| text.strip_prefix("\u{203A} "))
-        .or_else(|| text.strip_prefix("> "))
-        .or_else(|| text.strip_prefix("\u{276D} "))
-        .or_else(|| text.strip_prefix("\u{BB} "))
-        .unwrap_or(text)
-}
-
-fn line_text_for_input(line: &[Cell], skip_inverse: bool) -> String {
-    let mut line_text = String::new();
-    let mut col = 0;
-    while col < line.len() {
-        let cell = &line[col];
-        if skip_inverse && cell.flags.contains(CellFlags::INVERSE) {
-            col += 1;
-            continue;
-        }
-        if cell.flags.contains(CellFlags::WIDE_CHAR) {
-            line_text.push(cell.character);
-            col += 2;
-        } else if cell.character == '\0' {
-            line_text.push(' ');
-            col += 1;
-        } else {
-            line_text.push(cell.character);
-            col += 1;
-        }
-    }
-    line_text
-}
-
-fn collect_input_block_text(
-    cells: &[Vec<Cell>],
-    start_row: usize,
-    end_row: usize,
-    skip_inverse: bool,
-) -> String {
-    let mut result = String::new();
-    for row_idx in start_row..=end_row {
-        let mut trimmed = line_text_for_input(&cells[row_idx], skip_inverse)
-            .trim_end()
-            .to_string();
-        if row_idx == start_row {
-            trimmed = strip_prompt_prefix(&trimmed).to_string();
-        }
-        if !result.is_empty() && (!trimmed.is_empty() || !is_row_wrapped(&cells[row_idx - 1])) {
-            if !is_row_wrapped(&cells[row_idx - 1]) {
-                result.push('\n');
-            }
-        }
-        result.push_str(&trimmed);
-    }
-    result
-}
-
-fn find_codex_prompt_row(cells: &[Vec<Cell>], cursor_row: usize) -> Option<usize> {
-    let start = cursor_row.saturating_sub(8);
-    for row_idx in (start..=cursor_row).rev() {
-        let text = collect_line_text(&cells[row_idx]);
-        let trimmed = text.trim_start();
-        if matches!(
-            trimmed.chars().next(),
-            Some('›' | '❯' | '>' | '❭' | '»')
-        ) {
-            return Some(row_idx);
-        }
-    }
-    None
-}
-
-/// Extract the input line text, using app-specific prompt detection when available,
-/// falling back to the logical line around the cursor.
+/// Extract the input line text from the logical line around the cursor.
 /// Returns (text, flash_start, flash_end) in screen rows.
-pub fn input_line_text(grid: &growterm_grid::Grid, app: TuiApp) -> (String, u16, u16) {
-    let cells = grid.cells();
-    if app == TuiApp::Claude {
-        if let Some(prompt_row) = crate::ink_workaround::find_prompt_row(cells) {
-            let bottom = crate::ink_workaround::find_input_bottom(cells, prompt_row);
-            return (
-                collect_input_block_text(cells, prompt_row, bottom, true),
-                prompt_row as u16,
-                bottom as u16,
-            );
-        }
-    }
-    if app == TuiApp::Codex {
-        let cursor_row = grid.cursor_pos().0 as usize;
-        if let Some(prompt_row) = find_codex_prompt_row(cells, cursor_row) {
-            return (
-                collect_input_block_text(cells, prompt_row, cursor_row, false),
-                prompt_row as u16,
-                cursor_row as u16,
-            );
-        }
-    }
+pub fn input_line_text(grid: &growterm_grid::Grid) -> (String, u16, u16) {
     let row = grid.cursor_pos().0 as usize;
+    let cells = grid.cells();
     let mut start = row;
     while start > 0 && is_row_wrapped(&cells[start - 1]) {
         start -= 1;
@@ -628,7 +532,6 @@ pub fn row_cells_absolute(grid: &growterm_grid::Grid, abs_row: u32) -> Vec<Cell>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ink_workaround::TuiApp;
     use growterm_types::{Cell, CellFlags, Color};
 
     #[test]
@@ -841,74 +744,7 @@ mod tests {
     }
 
     #[test]
-    fn input_line_text_with_ink_prompt() {
-        use growterm_grid::Grid;
-        use growterm_types::TerminalCommand;
-
-        let mut grid = Grid::new(80, 10);
-        // Row 0: separator ─────
-        for c in "─────".chars() {
-            grid.apply(&TerminalCommand::Print(c));
-        }
-        // Move to row 1: prompt line ❯ hello
-        grid.apply(&TerminalCommand::CursorPosition { row: 2, col: 1 });
-        for c in "❯ hello".chars() {
-            grid.apply(&TerminalCommand::Print(c));
-        }
-        // Row 2: separator ─────
-        grid.apply(&TerminalCommand::CursorPosition { row: 3, col: 1 });
-        for c in "─────".chars() {
-            grid.apply(&TerminalCommand::Print(c));
-        }
-        // Cursor elsewhere (like Claude Code does)
-        grid.apply(&TerminalCommand::CursorPosition { row: 5, col: 1 });
-
-        let (text, flash_start, flash_end) = input_line_text(&grid, TuiApp::Claude);
-        assert_eq!(text, "hello");
-        assert_eq!(flash_start, 1); // prompt is on row 1
-        assert_eq!(flash_end, 1); // single line input
-    }
-
-    #[test]
-    fn input_line_text_falls_back_to_cursor_line() {
-        use growterm_grid::Grid;
-        use growterm_types::TerminalCommand;
-
-        // No Ink prompt pattern, falls back to cursor_line_text
-        let mut grid = Grid::new(80, 10);
-        for c in "$ ls -la".chars() {
-            grid.apply(&TerminalCommand::Print(c));
-        }
-        let (text, flash_start, flash_end) = input_line_text(&grid, TuiApp::Unknown);
-        assert_eq!(text, "$ ls -la");
-        assert_eq!(flash_start, 0); // cursor is on row 0
-        assert_eq!(flash_end, 0); // single line
-    }
-
-    #[test]
-    fn input_line_text_with_codex_prompt_multiline() {
-        use growterm_grid::Grid;
-        use growterm_types::TerminalCommand;
-
-        let mut grid = Grid::new(40, 10);
-        grid.apply(&TerminalCommand::CursorPosition { row: 8, col: 1 });
-        for c in "› explain why resize breaks".chars() {
-            grid.apply(&TerminalCommand::Print(c));
-        }
-        grid.apply(&TerminalCommand::CursorPosition { row: 9, col: 1 });
-        for c in "when scrollback is visible".chars() {
-            grid.apply(&TerminalCommand::Print(c));
-        }
-        grid.apply(&TerminalCommand::CursorPosition { row: 9, col: 28 });
-
-        let (text, flash_start, flash_end) = input_line_text(&grid, TuiApp::Codex);
-        assert_eq!(text, "explain why resize breaks\nwhen scrollback is visible");
-        assert_eq!(flash_start, 7);
-        assert_eq!(flash_end, 8);
-    }
-
-    #[test]
-    fn input_line_text_unknown_uses_logical_line_for_soft_wrap() {
+    fn input_line_text_uses_logical_line_for_soft_wrap() {
         use growterm_grid::Grid;
         use growterm_types::TerminalCommand;
 
@@ -917,7 +753,7 @@ mod tests {
             grid.apply(&TerminalCommand::Print(c));
         }
 
-        let (text, flash_start, flash_end) = input_line_text(&grid, TuiApp::Unknown);
+        let (text, flash_start, flash_end) = input_line_text(&grid);
         assert_eq!(text, "helloworld!");
         assert_eq!(flash_start, 0);
         assert_eq!(flash_end, 1);

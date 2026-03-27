@@ -4,7 +4,7 @@
 
 [한국어](README.ko.md)
 
-A terminal app that grows — GPU-accelerated terminal emulator written in Rust for macOS.
+A terminal app that grows — GPU-accelerated terminal emulator written in Rust for macOS. With a few fun features.
 
 ## Design Goals
 
@@ -15,7 +15,6 @@ A terminal app that grows — GPU-accelerated terminal emulator written in Rust 
 ## Features
 
 - **GPU Rendering** — wgpu-based 2-pass rendering (background + glyphs)
-- **Korean Support** — IME input with preedit overlay, wide character handling, D2Coding font
 - **Tabs** — Cmd+T/W to open/close, Cmd+1-9 to switch, Cmd+Shift+[/] to cycle, click tab bar, new tabs inherit working directory
 - **VT Parsing** — SGR attributes (bold, dim, italic, underline, strikethrough, inverse), 256/RGB color, cursor movement, screen clearing
 - **TUI App Support** — Alternate screen, scroll regions, mouse tracking (SGR), bracketed paste, synchronized output, cursor visibility (DECTCEM)

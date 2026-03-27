@@ -1,6 +1,5 @@
 pub mod config;
 pub mod copy_mode;
-pub mod ink_workaround;
 pub mod pomodoro;
 pub mod response_timer;
 pub mod selection;

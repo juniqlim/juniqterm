@@ -52,7 +52,6 @@ impl FreezeLog {
     }
 }
 use crate::copy_mode::CopyMode;
-use crate::ink_workaround::{detect_tui_app, InkImeState};
 use crate::pomodoro::{Pomodoro, TickResult};
 use crate::search_mode::SearchMode;
 use crate::selection::{self, Selection};
@@ -236,7 +235,6 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
     let test_dropped_path = std::env::var("GROWTERM_TEST_DROPPED_PATH").ok();
     let mut test_input_sent = false;
     let mut test_drop_sent = false;
-    let mut ink_state = InkImeState::new();
     let mut response_timer_enabled = config.response_timer;
     if response_timer_enabled {
         if let Some(tab) = tabs.active_tab_mut() {
@@ -288,7 +286,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
             } else {
                 None
             };
-            if render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, &hover_url_ranges, pomodoro.is_input_blocked(), pomodoro.coaching_lines().as_deref(), scrollbar_dragging || scrollbar_visible_until.map_or(false, |t| t > Instant::now()), copy_flash, tab_dragging, transparent_tab_bar, title_bar_height, header_opacity, &search_hl, search_cur, search_bar_info) {
+            if render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &hover_url_ranges, pomodoro.is_input_blocked(), pomodoro.coaching_lines().as_deref(), scrollbar_dragging || scrollbar_visible_until.map_or(false, |t| t > Instant::now()), copy_flash, tab_dragging, transparent_tab_bar, title_bar_height, header_opacity, &search_hl, search_cur, search_bar_info) {
                 window.request_redraw();
             }
         }};
@@ -300,7 +298,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
             } else {
                 None
             };
-            if render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &ink_state, &hover_url_ranges, pomodoro.is_input_blocked(), pomodoro.coaching_lines().as_deref(), true, copy_flash, tab_dragging, transparent_tab_bar, title_bar_height, header_opacity, &search_hl, search_cur, search_bar_info) {
+            if render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &hover_url_ranges, pomodoro.is_input_blocked(), pomodoro.coaching_lines().as_deref(), true, copy_flash, tab_dragging, transparent_tab_bar, title_bar_height, header_opacity, &search_hl, search_cur, search_bar_info) {
                 window.request_redraw();
             }
         }};
@@ -359,7 +357,6 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                     do_render!();
                     continue;
                 }
-                ink_state.on_text_commit(&text);
                 if pomodoro.is_input_blocked() {
                     continue;
                 }
@@ -370,11 +367,6 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                 }
             }
             AppEvent::Preedit(text) => {
-                if !text.is_empty() {
-                    let child_pid = tabs.active_tab()
-                        .and_then(|t| t.pty_writer.child_pid());
-                    ink_state.on_preedit(child_pid);
-                }
                 preedit = text;
                 window.request_redraw();
             }
@@ -540,10 +532,8 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                     if keycode == kc::ANSI_A {
                         if let Some(tab) = tabs.active_tab() {
                             let state = tab.terminal.lock().unwrap();
-                            let child_pid = tab.pty_writer.child_pid();
-                            let app = detect_tui_app(child_pid);
                             let (text, flash_start, flash_end) =
-                                selection::input_line_text(&state.grid, app);
+                                selection::input_line_text(&state.grid);
                             drop(state);
                             copy_to_clipboard(&text);
                             copy_flash = Some((flash_start, flash_end, Instant::now()));
@@ -824,12 +814,10 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                     }
                     pomodoro.on_input(&tab_scrollback_lens(&tabs));
                     if bytes == b"\r" || bytes == b"\n" {
-                        ink_state.on_enter();
                         if let Some(tab) = tabs.active_tab_mut() {
                             tab.response_timer.on_enter();
                         }
                     } else {
-                        ink_state.on_key_input(&bytes);
                     }
                     if let Some(tab) = tabs.active_tab_mut() {
                         let _ = tab.pty_writer.write_all(&bytes);
@@ -1133,12 +1121,6 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                     } else {
                         Some(state.grid.cursor_pos())
                     };
-                    let preedit_pos_override = if preedit.is_empty() || scrolled {
-                        None
-                    } else {
-                        let visible = state.grid.visible_cells();
-                        ink_state.preedit_pos(&visible)
-                    };
                     ime_cursor_rect_pixels(
                         tabs.show_tab_bar(),
                         drawer.tab_bar_height(),
@@ -1146,7 +1128,6 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                         cw,
                         ch,
                         cursor,
-                        preedit_pos_override,
                     )
                 });
                 if last_ime_cursor_rect != next_ime_cursor_rect {
@@ -1444,9 +1425,8 @@ fn ime_cursor_rect_pixels(
     cell_w: f32,
     cell_h: f32,
     cursor: Option<(u16, u16)>,
-    preedit_pos_override: Option<(u16, u16)>,
 ) -> Option<(f32, f32, f32, f32)> {
-    let (row, col) = preedit_pos_override.or(cursor)?;
+    let (row, col) = cursor?;
     let y_offset = crate::tab::content_y_offset(show_tab_bar, tab_bar_h, title_bar_h, false);
     Some((col as f32 * cell_w, y_offset + row as f32 * cell_h, cell_w, cell_h))
 }
@@ -1487,7 +1467,7 @@ fn shell_escape(path: &str) -> String {
 }
 
 /// Returns true if the glyph budget was exceeded and another redraw is needed.
-fn render_with_tabs(drawer: &mut GpuDrawer, tabs: &TabManager, preedit: &str, sel: &Selection, ink_state: &InkImeState, hover_url_ranges: &[(u32, u16, u16)], is_break: bool, break_text: Option<&[String]>, show_scrollbar: bool, copy_flash: Option<(u16, u16, Instant)>, tab_dragging: Option<usize>, transparent_tab_bar: bool, title_bar_height: f32, header_opacity: f32, search_highlights: &[(u32, u16, u16)], search_current: Option<(u32, u16, u16)>, search_bar: Option<(&str, usize, usize)>) -> bool {
+fn render_with_tabs(drawer: &mut GpuDrawer, tabs: &TabManager, preedit: &str, sel: &Selection, hover_url_ranges: &[(u32, u16, u16)], is_break: bool, break_text: Option<&[String]>, show_scrollbar: bool, copy_flash: Option<(u16, u16, Instant)>, tab_dragging: Option<usize>, transparent_tab_bar: bool, title_bar_height: f32, header_opacity: f32, search_highlights: &[(u32, u16, u16)], search_current: Option<(u32, u16, u16)>, search_bar: Option<(&str, usize, usize)>) -> bool {
     let tab = match tabs.active_tab() {
         Some(t) => t,
         None => return false,
@@ -1527,11 +1507,6 @@ fn render_with_tabs(drawer: &mut GpuDrawer, tabs: &TabManager, preedit: &str, se
     let sel_range = sel.screen_normalized(view_base, visible_rows);
 
     let show_tab_bar = tabs.show_tab_bar();
-    let preedit_pos_override = if preedit_str.is_some() {
-        ink_state.preedit_pos(&visible)
-    } else {
-        None
-    };
     let mut commands = growterm_render_cmd::generate_with_offset(
         &visible,
         cursor,
@@ -1539,7 +1514,7 @@ fn render_with_tabs(drawer: &mut GpuDrawer, tabs: &TabManager, preedit: &str, se
         sel_range,
         0,
         state.palette,
-        preedit_pos_override,
+        None,
         if scrolled { None } else { Some(cursor_pos) },
     );
 
@@ -1935,36 +1910,21 @@ mod tests {
 
     #[test]
     fn ime_cursor_rect_pixels_returns_none_without_cursor() {
-        let rect = ime_cursor_rect_pixels(false, 24.0, 18.0, 10.0, 20.0, None, None);
+        let rect = ime_cursor_rect_pixels(false, 24.0, 18.0, 10.0, 20.0, None);
 
         assert!(rect.is_none());
     }
 
     #[test]
     fn ime_cursor_rect_pixels_uses_cursor_position() {
-        let rect = ime_cursor_rect_pixels(false, 24.0, 18.0, 10.0, 20.0, Some((2, 3)), None);
+        let rect = ime_cursor_rect_pixels(false, 24.0, 18.0, 10.0, 20.0, Some((2, 3)));
 
         assert_eq!(rect, Some((30.0, 58.0, 10.0, 20.0)));
     }
 
     #[test]
-    fn ime_cursor_rect_pixels_prefers_preedit_override() {
-        let rect = ime_cursor_rect_pixels(
-            false,
-            24.0,
-            18.0,
-            10.0,
-            20.0,
-            Some((2, 3)),
-            Some((4, 5)),
-        );
-
-        assert_eq!(rect, Some((50.0, 98.0, 10.0, 20.0)));
-    }
-
-    #[test]
     fn ime_cursor_rect_pixels_includes_tab_bar_offset() {
-        let rect = ime_cursor_rect_pixels(true, 24.0, 18.0, 10.0, 20.0, Some((1, 2)), None);
+        let rect = ime_cursor_rect_pixels(true, 24.0, 18.0, 10.0, 20.0, Some((1, 2)));
 
         assert_eq!(rect, Some((20.0, 62.0, 10.0, 20.0)));
     }
