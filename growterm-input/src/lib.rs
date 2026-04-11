@@ -26,7 +26,7 @@ pub fn encode_with_kitty_flags_and_event_type(
     let disambiguate = kitty_flags & KITTY_KEYBOARD_DISAMBIGUATE_ESCAPES != 0;
     let kitty_event_type = kitty_event_type(event_type, kitty_flags);
 
-    if event_type != KeyEventType::Press && kitty_event_type.is_none() {
+    if event_type == KeyEventType::Release && kitty_event_type.is_none() {
         return Vec::new();
     }
 
@@ -58,7 +58,7 @@ pub fn encode_with_kitty_flags_and_event_type(
             encode_kitty_text_key(c, event.modifiers, kitty_event_type)
         }
         Key::Char(c) => {
-            if event_type != KeyEventType::Press {
+            if event_type == KeyEventType::Release {
                 return Vec::new();
             }
             let mut buf = [0u8; 4];
@@ -438,6 +438,20 @@ mod tests {
     }
 
     #[test]
+    fn backspace_repeat_without_kitty() {
+        let event = KeyEvent { key: Key::Backspace, modifiers: Modifiers::empty() };
+        let result = encode_with_kitty_flags_and_event_type(event, 0, KeyEventType::Repeat);
+        assert_eq!(result, b"\x7f", "Repeat should produce same output as Press");
+    }
+
+    #[test]
+    fn char_repeat_without_kitty() {
+        let event = KeyEvent { key: Key::Char('a'), modifiers: Modifiers::empty() };
+        let result = encode_with_kitty_flags_and_event_type(event, 0, KeyEventType::Repeat);
+        assert_eq!(result, b"a", "Repeat should produce same output as Press");
+    }
+
+    #[test]
     fn delete() {
         let event = KeyEvent { key: Key::Delete, modifiers: Modifiers::empty() };
         assert_eq!(encode(event), b"\x1b[3~");
@@ -717,7 +731,7 @@ mod tests {
     }
 
     #[test]
-    fn repeat_plain_text_without_report_all_is_ignored() {
+    fn repeat_plain_text_without_report_all_sends_utf8() {
         let event = KeyEvent { key: Key::Char('a'), modifiers: Modifiers::empty() };
         assert_eq!(
             encode_with_kitty_flags_and_event_type(
@@ -725,7 +739,7 @@ mod tests {
                 KITTY_KEYBOARD_REPORT_EVENT_TYPES,
                 KeyEventType::Repeat,
             ),
-            b""
+            b"a"
         );
     }
 }
