@@ -713,6 +713,7 @@ dependencies = [
  "growterm-gpu-draw",
  "growterm-grid",
  "growterm-input",
+ "growterm-linux",
  "growterm-macos",
  "growterm-pty",
  "growterm-render-cmd",
@@ -756,6 +757,16 @@ name = "growterm-input"
 version = "0.1.0"
 dependencies = [
  "growterm-types",
+]
+
+[[package]]
+name = "growterm-linux"
+version = "0.1.0"
+dependencies = [
+ "bitflags 2.11.0",
+ "growterm-types",
+ "raw-window-handle",
+ "winit",
 ]
 
 [[package]]

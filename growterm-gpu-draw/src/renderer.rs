@@ -5,7 +5,9 @@ use unicode_width::UnicodeWidthChar;
 
 use crate::atlas::GlyphAtlas;
 
+#[cfg(target_os = "macos")]
 use std::sync::Mutex;
+#[cfg(target_os = "macos")]
 pub static GLYPH_LOG: std::sync::LazyLock<Mutex<Option<std::fs::File>>> = std::sync::LazyLock::new(|| {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
     let dir = std::path::PathBuf::from(home).join("Library/Logs/growterm");

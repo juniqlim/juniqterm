@@ -1,14 +1,21 @@
 use std::collections::HashMap;
+#[cfg(target_os = "macos")]
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+#[cfg(target_os = "macos")]
 use crate::renderer::GLYPH_LOG;
 
+#[cfg(target_os = "macos")]
 use core_foundation::array::CFArray;
+#[cfg(target_os = "macos")]
 use core_foundation::base::TCFType;
+#[cfg(target_os = "macos")]
 use core_foundation::string::CFString;
+#[cfg(target_os = "macos")]
 use core_text::font as ct_font;
+#[cfg(target_os = "macos")]
 use core_text::font::CTFontRef;
 
 pub struct RasterizedGlyph {
@@ -163,6 +170,12 @@ impl GlyphAtlas {
         self.ascent
     }
 
+    #[cfg(not(target_os = "macos"))]
+    fn find_system_font(&mut self, _c: char) -> bool {
+        false
+    }
+
+    #[cfg(target_os = "macos")]
     fn find_system_font(&mut self, c: char) -> bool {
         if self.char_to_font_path.contains_key(&c) {
             return true;

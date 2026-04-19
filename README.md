@@ -185,10 +185,29 @@ cargo test
 
 717+ tests (unit + integration).
 
+### Install on Ubuntu UI
+
+Linux support uses `winit` with `wgpu`'s Vulkan/OpenGL backends.
+
+```bash
+./install-ubuntu.sh
+growterm
+```
+
+For a normal Ubuntu package:
+
+```bash
+./package-ubuntu-deb.sh
+sudo apt install ./target/packages/growterm_0.1.0_$(dpkg --print-architecture).deb
+```
+
+See [docs/ubuntu.md](docs/ubuntu.md) for details and GNOME notes.
+
 ## Requirements
 
 - Rust (stable)
 - macOS (wgpu Metal backend)
+- Ubuntu/Linux UI (experimental, wgpu Vulkan/OpenGL backend)
 
 ## License
 

@@ -4,7 +4,7 @@ use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 
 use growterm_gpu_draw::GpuDrawer;
-use growterm_macos::{AppEvent, MacWindow, Modifiers};
+use crate::platform::{AppEvent, MacWindow, Modifiers};
 
 use crate::config::CopyModeAction;
 
@@ -137,28 +137,28 @@ fn should_enter_copy_mode_from_text(text: &str) -> bool {
 fn should_enter_copy_mode_from_key_input(
     keycode: u16,
     modifiers: Modifiers,
-    event_type: growterm_macos::KeyEventType,
+    event_type: crate::platform::KeyEventType,
 ) -> bool {
-    use growterm_macos::key_convert::keycode as kc;
+    use crate::platform::key_convert::keycode as kc;
 
     keycode == kc::ANSI_GRAVE
         && modifiers.is_empty()
-        && event_type == growterm_macos::KeyEventType::Press
+        && event_type == crate::platform::KeyEventType::Press
 }
 
-fn should_handle_copy_mode_action(event_type: growterm_macos::KeyEventType) -> bool {
-    event_type != growterm_macos::KeyEventType::Release
+fn should_handle_copy_mode_action(event_type: crate::platform::KeyEventType) -> bool {
+    event_type != crate::platform::KeyEventType::Release
 }
 
 fn should_handle_copy_mode_action_for_event(
     action: CopyModeAction,
-    event_type: growterm_macos::KeyEventType,
+    event_type: crate::platform::KeyEventType,
 ) -> bool {
     if !should_handle_copy_mode_action(event_type) {
         return false;
     }
     match action {
-        CopyModeAction::Exit => event_type == growterm_macos::KeyEventType::Press,
+        CopyModeAction::Exit => event_type == crate::platform::KeyEventType::Press,
         _ => true,
     }
 }
@@ -376,7 +376,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                 modifiers,
                 event_type,
             } => {
-                use growterm_macos::key_convert::keycode as kc;
+                use crate::platform::key_convert::keycode as kc;
 
                 if modifiers.contains(Modifiers::SUPER) {
                     // Cmd+N: new window (spawn new process)
@@ -798,7 +798,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
                     continue;
                 }
                 if let Some(key_event) =
-                    growterm_macos::convert_key(keycode, characters.as_deref(), modifiers)
+                    crate::platform::convert_key(keycode, characters.as_deref(), modifiers)
                 {
                     let kitty_flags = tabs.active_tab().map_or(0, |tab| {
                         tab.kitty_keyboard_flags
@@ -1651,55 +1651,55 @@ mod tests {
     #[test]
     fn bare_grave_key_input_enters_copy_mode() {
         assert!(should_enter_copy_mode_from_key_input(
-            growterm_macos::key_convert::keycode::ANSI_GRAVE,
+            crate::platform::key_convert::keycode::ANSI_GRAVE,
             Modifiers::empty(),
-            growterm_macos::KeyEventType::Press,
+            crate::platform::KeyEventType::Press,
         ));
     }
 
     #[test]
     fn modified_grave_key_input_does_not_enter_copy_mode() {
         assert!(!should_enter_copy_mode_from_key_input(
-            growterm_macos::key_convert::keycode::ANSI_GRAVE,
+            crate::platform::key_convert::keycode::ANSI_GRAVE,
             Modifiers::SHIFT,
-            growterm_macos::KeyEventType::Press,
+            crate::platform::KeyEventType::Press,
         ));
         assert!(!should_enter_copy_mode_from_key_input(
-            growterm_macos::key_convert::keycode::ANSI_GRAVE,
+            crate::platform::key_convert::keycode::ANSI_GRAVE,
             Modifiers::ALT,
-            growterm_macos::KeyEventType::Press,
+            crate::platform::KeyEventType::Press,
         ));
     }
 
     #[test]
     fn grave_key_release_does_not_enter_copy_mode() {
         assert!(!should_enter_copy_mode_from_key_input(
-            growterm_macos::key_convert::keycode::ANSI_GRAVE,
+            crate::platform::key_convert::keycode::ANSI_GRAVE,
             Modifiers::empty(),
-            growterm_macos::KeyEventType::Release,
+            crate::platform::KeyEventType::Release,
         ));
     }
 
     #[test]
     fn copy_mode_actions_ignore_key_release() {
-        assert!(should_handle_copy_mode_action(growterm_macos::KeyEventType::Press));
-        assert!(should_handle_copy_mode_action(growterm_macos::KeyEventType::Repeat));
-        assert!(!should_handle_copy_mode_action(growterm_macos::KeyEventType::Release));
+        assert!(should_handle_copy_mode_action(crate::platform::KeyEventType::Press));
+        assert!(should_handle_copy_mode_action(crate::platform::KeyEventType::Repeat));
+        assert!(!should_handle_copy_mode_action(crate::platform::KeyEventType::Release));
     }
 
     #[test]
     fn copy_mode_exit_only_handles_press() {
         assert!(should_handle_copy_mode_action_for_event(
             CopyModeAction::Exit,
-            growterm_macos::KeyEventType::Press,
+            crate::platform::KeyEventType::Press,
         ));
         assert!(!should_handle_copy_mode_action_for_event(
             CopyModeAction::Exit,
-            growterm_macos::KeyEventType::Repeat,
+            crate::platform::KeyEventType::Repeat,
         ));
         assert!(!should_handle_copy_mode_action_for_event(
             CopyModeAction::Exit,
-            growterm_macos::KeyEventType::Release,
+            crate::platform::KeyEventType::Release,
         ));
     }
 
@@ -1707,7 +1707,7 @@ mod tests {
     fn copy_mode_navigation_allows_repeat() {
         assert!(should_handle_copy_mode_action_for_event(
             CopyModeAction::Down,
-            growterm_macos::KeyEventType::Repeat,
+            crate::platform::KeyEventType::Repeat,
         ));
     }
 

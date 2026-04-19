@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use growterm_macos::key_convert::char_to_keycode;
+use crate::platform::key_convert::char_to_keycode;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CopyModeAction {
@@ -391,7 +391,7 @@ exit = "q"
 
     #[test]
     fn build_action_map_default() {
-        use growterm_macos::key_convert::keycode as kc;
+        use crate::platform::key_convert::keycode as kc;
         let keys = CopyModeKeys::default();
         let map = keys.build_action_map();
         assert_eq!(map.get(&kc::ANSI_J), Some(&CopyModeAction::Down));
@@ -410,7 +410,7 @@ exit = "q"
 
     #[test]
     fn build_action_map_custom() {
-        use growterm_macos::key_convert::keycode as kc;
+        use crate::platform::key_convert::keycode as kc;
         let mut keys = CopyModeKeys::default();
         keys.down = vec!["n".into()];
         let map = keys.build_action_map();

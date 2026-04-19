@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use growterm_grid::Grid;
-use growterm_macos::MacWindow;
+use crate::platform::MacWindow;
 use growterm_pty::PtyWriter;
 use growterm_render_cmd::TerminalPalette;
 use growterm_types::{Rgb, TerminalCommand};

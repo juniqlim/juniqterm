@@ -15,9 +15,14 @@ growterm-vt-parser = { path = "../growterm-vt-parser" }
 growterm-grid = { path = "../growterm-grid" }
 growterm-pty = { path = "../growterm-pty" }
 growterm-input = { path = "../growterm-input" }
-growterm-macos = { path = "../growterm-macos" }
 libc = "0.2"
 arboard = "3"
 unicode-width = "0.2.2"
 toml = "0.8"
 serde = { version = "1", features = ["derive"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+growterm-macos = { path = "../growterm-macos" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+growterm-linux = { path = "../growterm-linux" }

@@ -3,6 +3,7 @@ mod config;
 mod copy_mode;
 mod search_mode;
 mod pomodoro;
+mod platform;
 mod response_timer;
 #[allow(dead_code)]
 mod selection;
@@ -41,8 +42,8 @@ fn main() {
     let window_size = config.window_size();
     let window_position = config.window_position();
 
-    growterm_macos::run(window_size, window_position, move |window, rx| {
-        // GpuDrawer must be created on the main thread (Metal requirement)
+    crate::platform::run(window_size, window_position, move |window, rx| {
+        // GpuDrawer must be created on the UI thread for the platform window backend.
         let (width, height) = window.inner_size();
         let font_path = resolve_font_path(&font_family);
         let drawer = growterm_gpu_draw::GpuDrawer::new(window.clone(), width, height, font_size, font_path.as_deref());

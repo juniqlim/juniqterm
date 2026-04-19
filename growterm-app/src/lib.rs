@@ -1,6 +1,7 @@
 pub mod config;
 pub mod copy_mode;
 pub mod pomodoro;
+pub mod platform;
 pub mod response_timer;
 pub mod selection;
 pub mod tab;

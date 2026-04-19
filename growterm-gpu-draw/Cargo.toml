@@ -10,9 +10,11 @@ raw-window-handle = "0.6"
 fontdue = "0.9"
 bytemuck = { version = "1", features = ["derive"] }
 pollster = "0.4"
+unicode-width = "0.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
 core-text = "20"
 core-foundation = "0.9"
-unicode-width = "0.2"
 
 [[example]]
 name = "hardcoded_grid"

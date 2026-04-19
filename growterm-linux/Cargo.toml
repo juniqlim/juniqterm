@@ -1,0 +1,10 @@
+[package]
+name = "growterm-linux"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+growterm-types = { path = "../growterm-types" }
+bitflags = "2"
+raw-window-handle = "0.6"
+winit = "0.30"
