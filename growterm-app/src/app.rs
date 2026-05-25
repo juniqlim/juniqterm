@@ -286,7 +286,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
             } else {
                 None
             };
-            if render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &hover_url_ranges, pomodoro.is_input_blocked(), pomodoro.coaching_lines().as_deref(), scrollbar_dragging || scrollbar_visible_until.map_or(false, |t| t > Instant::now()), copy_flash, tab_dragging, transparent_tab_bar, title_bar_height, header_opacity, &search_hl, search_cur, search_bar_info) {
+            if render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &hover_url_ranges, pomodoro.is_input_blocked(), pomodoro.coaching_lines(coaching_enabled).as_deref(), scrollbar_dragging || scrollbar_visible_until.map_or(false, |t| t > Instant::now()), copy_flash, tab_dragging, transparent_tab_bar, title_bar_height, header_opacity, &search_hl, search_cur, search_bar_info) {
                 window.request_redraw();
             }
         }};
@@ -298,7 +298,7 @@ pub fn run(window: Arc<MacWindow>, rx: mpsc::Receiver<AppEvent>, mut drawer: Gpu
             } else {
                 None
             };
-            if render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &hover_url_ranges, pomodoro.is_input_blocked(), pomodoro.coaching_lines().as_deref(), true, copy_flash, tab_dragging, transparent_tab_bar, title_bar_height, header_opacity, &search_hl, search_cur, search_bar_info) {
+            if render_with_tabs(&mut drawer, &tabs, &preedit, &sel, &hover_url_ranges, pomodoro.is_input_blocked(), pomodoro.coaching_lines(coaching_enabled).as_deref(), true, copy_flash, tab_dragging, transparent_tab_bar, title_bar_height, header_opacity, &search_hl, search_cur, search_bar_info) {
                 window.request_redraw();
             }
         }};

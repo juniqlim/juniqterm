@@ -137,8 +137,8 @@ impl Pomodoro {
         Arc::clone(&self.ai_response)
     }
 
-    pub fn coaching_lines(&self) -> Option<Vec<String>> {
-        if self.phase != Phase::Break {
+    pub fn coaching_lines(&self, coaching_enabled: bool) -> Option<Vec<String>> {
+        if !coaching_enabled || self.phase != Phase::Break {
             return None;
         }
         let guard = self.ai_response.lock().unwrap();
@@ -446,7 +446,7 @@ mod tests {
         p.on_input_at(now, &[(0, 0)]);
         p.tick_at(now + Duration::from_secs(DEFAULT_WORK_SECS));
 
-        let lines = p.coaching_lines().expect("should return lines during break");
+        let lines = p.coaching_lines(true).expect("should return lines during break");
         assert_eq!(lines[0], "[Coaching]");
         assert!(lines.iter().any(|l| l.contains("분석 중")));
     }
@@ -463,7 +463,7 @@ mod tests {
             "다음엔 커밋을 더 자주 하세요.".to_string(),
         ]);
 
-        let lines = p.coaching_lines().expect("should return lines during break");
+        let lines = p.coaching_lines(true).expect("should return lines during break");
         assert_eq!(lines[0], "[Coaching]");
         assert!(lines.iter().any(|l| l.contains("잘 집중")));
         assert!(lines.iter().any(|l| l.contains("커밋")));
@@ -472,12 +472,25 @@ mod tests {
     #[test]
     fn coaching_lines_returns_none_when_not_break() {
         let mut p = enabled_pomodoro();
-        assert!(p.coaching_lines().is_none(), "Idle -> None");
+        assert!(p.coaching_lines(true).is_none(), "Idle -> None");
 
         let now = Instant::now();
         p.on_input_at(now, &[(0, 0)]);
         assert_eq!(p.phase(), Phase::Working);
-        assert!(p.coaching_lines().is_none(), "Working -> None");
+        assert!(p.coaching_lines(true).is_none(), "Working -> None");
+    }
+
+    #[test]
+    fn coaching_lines_returns_none_when_disabled() {
+        let mut p = enabled_pomodoro();
+        let now = Instant::now();
+        p.on_input_at(now, &[(0, 0)]);
+        p.tick_at(now + Duration::from_secs(DEFAULT_WORK_SECS));
+        assert_eq!(p.phase(), Phase::Break);
+        assert!(
+            p.coaching_lines(false).is_none(),
+            "coaching disabled -> None even during break"
+        );
     }
 
     #[test]
